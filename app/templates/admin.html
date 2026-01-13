@@ -1,0 +1,548 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 rounded">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="#"><i class="fas fa-server"></i> Control Panel</a>
+    <div class="collapse navbar-collapse" id="navbarColor01">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item">
+            <a class="nav-link" href="/dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link active" href="/admin"><i class="fas fa-cogs"></i> Admin Panel</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-cogs"></i> Admin Panel</h2>
+</div>
+
+<!-- System Stats -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-primary">
+            <div class="card-header text-primary"><i class="fas fa-microchip"></i> CPU Usage</div>
+            <div class="card-body">
+                <h3 class="card-title" id="cpuVal">--%</h3>
+                <div class="progress">
+                    <div id="cpuBar" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-success">
+            <div class="card-header text-success"><i class="fas fa-memory"></i> RAM Usage</div>
+            <div class="card-body">
+                <h3 class="card-title" id="ramVal">--%</h3>
+                <p class="card-text small mb-1 text-muted" id="ramText">-- / -- GB</p>
+                <div class="progress">
+                    <div id="ramBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-info">
+            <div class="card-header text-info"><i class="fas fa-hdd"></i> Disk Usage</div>
+            <div class="card-body">
+                <h3 class="card-title" id="diskVal">--%</h3>
+                <p class="card-text small mb-1 text-muted" id="diskText">-- / -- GB</p>
+                <div class="progress">
+                    <div id="diskBar" class="progress-bar bg-info" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-secondary">
+            <div class="card-header text-secondary"><i class="fas fa-network-wired"></i> Network</div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <span class="text-info"><i class="fas fa-arrow-down"></i> <span id="netIn">-- KB/s</span></span>
+                    <span class="text-warning"><i class="fas fa-arrow-up"></i> <span id="netOut">-- KB/s</span></span>
+                </div>
+                <hr class="my-2">
+                <small class="d-block text-muted">Total Recv: <span id="totalRecv">--</span></small>
+                <small class="d-block text-muted">Total Sent: <span id="totalSent">--</span></small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
+        <i class="fas fa-users"></i> User Management
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="vms-tab" data-bs-toggle="tab" data-bs-target="#vms" type="button" role="tab">
+        <i class="fas fa-server"></i> VPS Management
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab">
+        <i class="fas fa-history"></i> Audit Logs
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="adminTabsContent">
+  <!-- Users Tab -->
+  <div class="tab-pane fade show active" id="users" role="tabpanel">
+    <div class="card border-primary mb-4">
+        <div class="card-header">Create New User</div>
+        <div class="card-body">
+            <form id="createUserForm" class="row g-3">
+                <div class="col-md-4">
+                    <input type="text" id="newUsername" placeholder="Username" class="form-control" required>
+                </div>
+                <div class="col-md-4">
+                    <input type="password" id="newPassword" placeholder="Password" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <select id="newRole" class="form-select">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div class="modal fade" id="editUserModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Edit User</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="editUserForm">
+                <input type="hidden" id="editUserId">
+                <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" id="editUsername" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="editPassword" class="form-control" placeholder="Leave blank to keep current">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Role</label>
+                    <select id="editRole" class="form-select">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="userTableBody">
+                <!-- Populated by JS -->
+            </tbody>
+        </table>
+    </div>
+  </div>
+
+  <!-- VMs Tab -->
+  <div class="tab-pane fade" id="vms" role="tabpanel">
+    
+    <!-- Toolbar -->
+    <div class="d-flex justify-content-between mb-3">
+        <div>
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addVMModal">
+                <i class="fas fa-plus"></i> Register New VPS
+            </button>
+            <button class="btn btn-outline-secondary" onclick="loadVMs()">
+                <i class="fas fa-sync"></i> Refresh
+            </button>
+        </div>
+        <div>
+            <input type="text" id="vmSearch" class="form-control" placeholder="Search VMs..." onkeyup="filterVMs()">
+        </div>
+    </div>
+
+    <!-- Modal for Adding VM -->
+    <div class="modal fade" id="addVMModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Register New VPS</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="createVMForm">
+                <div class="mb-3">
+                    <label class="form-label">VM Name</label>
+                    <input type="text" id="vmName" placeholder="My Virtual Machine" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">VMX Path</label>
+                    <div class="input-group">
+                        <input type="text" id="vmPath" list="vmPathList" placeholder="C:\Path\To\file.vmx" class="form-control" required>
+                        <button class="btn btn-secondary" type="button" onclick="scanVMs()" title="Scan for .vmx files">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                    <datalist id="vmPathList"></datalist>
+                    <small class="text-muted">Click the search icon to scan common directories.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Assign Owner</label>
+                    <select id="vmOwner" class="form-select">
+                        <option value="">-- No Owner --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Register VM</button>
+                </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Path</th>
+                    <th>Owner</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="vmTableBody">
+                <!-- Populated by JS -->
+            </tbody>
+        </table>
+    </div>
+  </div>
+
+  <!-- Logs Tab -->
+  <div class="tab-pane fade" id="logs" role="tabpanel">
+    <div class="table-responsive">
+        <table class="table table-hover table-striped">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>User ID</th>
+                    <th>Action</th>
+                    <th>Target VM</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody id="logsTableBody">
+                <!-- Populated by JS -->
+            </tbody>
+        </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let users = [];
+
+    async function loadUsers() {
+        try {
+            const res = await api.get('/admin/users');
+            users = res.data;
+            renderUsers();
+            updateOwnerDropdown();
+        } catch(err) { console.error("Failed to load users", err); }
+    }
+    
+    function renderUsers() {
+        const tbody = document.getElementById('userTableBody');
+        tbody.innerHTML = users.map(u => `
+            <tr>
+                <td>${u.id}</td>
+                <td>${u.username}</td>
+                <td><span class="badge bg-${u.role === 'admin' ? 'danger' : 'info'}">${u.role}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-warning" onclick="openEditUserModal(${u.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function deleteUser(id) {
+        if (!confirm('Are you sure you want to delete this user?')) return;
+        try {
+            await api.delete(`/admin/users/${id}`);
+            loadUsers();
+        } catch(err) {
+            alert('Failed to delete user: ' + (err.response?.data?.detail || err.message));
+        }
+    }
+
+    function openEditUserModal(userId) {
+        const user = users.find(u => u.id === userId);
+        if (!user) return;
+
+        document.getElementById('editUserId').value = user.id;
+        document.getElementById('editUsername').value = user.username;
+        document.getElementById('editRole').value = user.role;
+        document.getElementById('editPassword').value = ''; // Clear password field
+
+        const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
+        modal.show();
+    }
+
+    document.getElementById('editUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const userId = document.getElementById('editUserId').value;
+        const payload = {
+            username: document.getElementById('editUsername').value,
+            role: document.getElementById('editRole').value
+        };
+        const password = document.getElementById('editPassword').value;
+        if (password) {
+            payload.password = password;
+        }
+
+        try {
+            await api.put(`/admin/users/${userId}`, payload);
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editUserModal'));
+            modal.hide();
+            loadUsers();
+            alert('User updated successfully!');
+        } catch(err) {
+            alert('Failed to update user: ' + (err.response?.data?.detail || err.message));
+        }
+    });
+
+    function updateOwnerDropdown() {
+        const select = document.getElementById('vmOwner');
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">-- No Owner --</option>' + 
+            users.map(u => `<option value="${u.id}">${u.username} (ID: ${u.id})</option>`).join('');
+        if (currentVal) select.value = currentVal;
+    }
+
+    async function loadVMs() {
+        try {
+            const res = await api.get('/admin/vms');
+            const tbody = document.getElementById('vmTableBody');
+            tbody.innerHTML = res.data.map(v => {
+                const owner = users.find(u => u.id === v.owner_id);
+                return `
+                <tr>
+                    <td>${v.id}</td>
+                    <td><strong>${v.name}</strong></td>
+                    <td><small class="text-muted text-truncate d-inline-block" style="max-width: 250px;" title="${v.vmx_path}">${v.vmx_path}</small></td>
+                    <td>${owner ? `<span class="badge bg-info">${owner.username}</span>` : '<span class="badge bg-secondary">Unassigned</span>'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" title="Edit" onclick="alert('Edit feature coming soon')"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="deleteVM(${v.id})"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+            `}).join('');
+        } catch(err) { console.error("Failed to load VMs", err); }
+    }
+
+    function filterVMs() {
+        const input = document.getElementById('vmSearch');
+        const filter = input.value.toUpperCase();
+        const table = document.getElementById('vmTableBody');
+        const tr = table.getElementsByTagName('tr');
+
+        for (let i = 0; i < tr.length; i++) {
+            const tdName = tr[i].getElementsByTagName('td')[1];
+            const tdPath = tr[i].getElementsByTagName('td')[2];
+            if (tdName || tdPath) {
+                const txtValueName = tdName.textContent || tdName.innerText;
+                const txtValuePath = tdPath.textContent || tdPath.innerText;
+                if (txtValueName.toUpperCase().indexOf(filter) > -1 || txtValuePath.toUpperCase().indexOf(filter) > -1) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
+        }
+    }
+
+    async function deleteVM(id) {
+        if (!confirm('Are you sure you want to remove this VM from the panel?')) return;
+        try {
+            await api.delete(`/admin/vms/${id}`);
+            loadVMs();
+        } catch(err) {
+            alert('Failed to delete VM: ' + (err.response?.data?.detail || err.message));
+        }
+    }
+
+    async function scanVMs() {
+        const btn = document.querySelector('button[onclick="scanVMs()"]');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scanning...';
+        btn.disabled = true;
+
+        try {
+            const res = await api.get('/admin/scan_vms');
+            const paths = res.data.paths;
+            const datalist = document.getElementById('vmPathList');
+            datalist.innerHTML = paths.map(p => `<option value="${p}">`).join('');
+            
+            if (paths.length > 0) {
+                // Focus the input to encourage checking the list
+                document.getElementById('vmPath').focus();
+                // We could alert, but simply populating the list is often enough. 
+                // Let's add a small toast or just alert for now since we don't have a toast system.
+                alert(`Found ${paths.length} VMX files! Use the dropdown to select one.`);
+            } else {
+                alert('No VMX files found in standard directories.');
+            }
+        } catch(err) {
+            alert('Scan failed: ' + (err.response?.data?.detail || err.message));
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    async function loadLogs() {
+        try {
+            const res = await api.get('/admin/audit_logs');
+            const tbody = document.getElementById('logsTableBody');
+            tbody.innerHTML = res.data.map(log => `
+                <tr>
+                    <td>${new Date(log.timestamp).toLocaleString()}</td>
+                    <td>${log.user_id}</td>
+                    <td><span class="badge bg-secondary">${log.action}</span></td>
+                    <td>${log.vm_id || '-'}</td>
+                    <td>${log.details || ''}</td>
+                </tr>
+            `).join('');
+        } catch(err) { console.error("Failed to load logs", err); }
+    }
+    
+    document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            await api.post('/admin/users', {
+                username: document.getElementById('newUsername').value,
+                password: document.getElementById('newPassword').value,
+                role: document.getElementById('newRole').value
+            });
+            loadUsers();
+            e.target.reset();
+        } catch(err) { alert('Failed to create user: ' + (err.response?.data?.detail || err.message)); }
+    });
+    
+    document.getElementById('createVMForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const ownerId = document.getElementById('vmOwner').value;
+            await api.post('/admin/vms', {
+                name: document.getElementById('vmName').value,
+                vmx_path: document.getElementById('vmPath').value,
+                owner_id: ownerId ? parseInt(ownerId) : null
+            });
+            loadVMs();
+            e.target.reset();
+        } catch(err) { alert('Failed to register VM: ' + (err.response?.data?.detail || err.message)); }
+    });
+    
+    // Initial load
+    (async () => {
+        await loadUsers(); // Load users first so we can map IDs to names
+        await loadVMs();
+        // Load logs when the tab is clicked, or just load them now if it's not too heavy
+        await loadLogs(); 
+        updateSystemStats();
+        setInterval(updateSystemStats, 5000);
+    })();
+
+    async function updateSystemStats() {
+        try {
+            const res = await api.get('/admin/stats');
+            const s = res.data;
+            
+            // CPU
+            document.getElementById('cpuVal').textContent = s.cpu + '%';
+            document.getElementById('cpuBar').style.width = s.cpu + '%';
+            
+            // RAM
+            document.getElementById('ramVal').textContent = s.ram.percent + '%';
+            document.getElementById('ramText').textContent = `${s.ram.used} / ${s.ram.total} GB`;
+            document.getElementById('ramBar').style.width = s.ram.percent + '%';
+            
+            // Disk
+            document.getElementById('diskVal').textContent = s.disk.percent + '%';
+            document.getElementById('diskText').textContent = `${s.disk.used} / ${s.disk.total} GB`;
+            document.getElementById('diskBar').style.width = s.disk.percent + '%';
+            
+            // Network
+            if (s.net) {
+                const now = Date.now();
+                if (window.lastNet && window.lastTime) {
+                    const timeDiff = (now - window.lastTime) / 1000; // seconds
+                    if (timeDiff > 0) {
+                        const recvSpeed = (s.net.recv - window.lastNet.recv) / timeDiff; // bytes/sec
+                        const sentSpeed = (s.net.sent - window.lastNet.sent) / timeDiff;
+                        
+                        document.getElementById('netIn').textContent = formatSpeed(recvSpeed);
+                        document.getElementById('netOut').textContent = formatSpeed(sentSpeed);
+                    }
+                }
+                
+                document.getElementById('totalRecv').textContent = formatBytes(s.net.recv);
+                document.getElementById('totalSent').textContent = formatBytes(s.net.sent);
+                
+                window.lastNet = s.net;
+                window.lastTime = now;
+            }
+            
+        } catch(err) {
+            console.error("Stats error", err);
+        }
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function formatSpeed(bytesPerSec) {
+        return formatBytes(bytesPerSec) + '/s';
+    }
+</script>
+{% endblock %}
