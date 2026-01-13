@@ -48,10 +48,10 @@ A comprehensive web-based control panel for managing VMware Workstation VMs. Bui
     ```bash
     python run.py
     ```
-    The server will start on `http://0.0.0.0:8083`.
+    The server will start on `http://0.0.0.0:8082`.
 
 2.  **Login**:
-    - Open your browser and navigate to `http://localhost:8083`.
+    - Open your browser and navigate to `http://localhost:8082`.
     - **Default Admin Credentials**:
       - Username: `admin`
       - Password: `admin`
