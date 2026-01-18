@@ -28,20 +28,23 @@
 
 <div id="vmList" class="row"></div>
 
-<!-- Screenshot Modal -->
+<!-- Screenshot Modal (Renamed to Console) -->
 <div class="modal fade" id="screenshotModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Live Monitor <span class="badge bg-danger">LIVE</span></h5>
+        <h5 class="modal-title">Live Console <span class="badge bg-danger">VNC</span></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body text-center">
-        <img id="screenshotImage" src="" class="img-fluid border rounded" alt="Loading screenshot..." style="min-height: 200px; background: #000;">
+      <div class="modal-body text-center p-0" style="background: #000; min-height: 600px; display: flex; align-items: center; justify-content: center;">
+        <div id="vnc-container" style="width: 100%; height: 600px;">
+            <!-- VNC Canvas will be here -->
+        </div>
+        <div id="vnc-status" class="text-white" style="position: absolute;">Connecting...</div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-success" onclick="refreshScreenshot()">
-            <i class="fas fa-sync"></i> Refresh
+        <button type="button" class="btn btn-warning" onclick="sendCtrlAltDel()">
+            <i class="fas fa-keyboard"></i> Ctrl+Alt+Del
         </button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
@@ -149,18 +152,148 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js" type="module"></script>
+<script type="module">
+    import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js';
+    window.RFB = RFB;
+</script>
 <script>
+    const selectedVmIdRaw = "{{ vm_id|default('') }}";
+    const selectedVmId = selectedVmIdRaw ? parseInt(selectedVmIdRaw, 10) : null;
     let currentVMs = [];
 
     async function loadVMs() {
         try {
             const response = await api.get('/vms/');
-            currentVMs = response.data;
+            const allVMs = response.data;
+            currentVMs = selectedVmId !== null ? allVMs.filter(vm => vm.id === selectedVmId) : allVMs;
             const container = document.getElementById('vmList');
             container.innerHTML = '';
             
             if (currentVMs.length === 0) {
                 container.innerHTML = '<div class="col-12"><div class="alert alert-info">No VMs assigned to you.</div></div>';
+                return;
+            }
+
+            if (selectedVmId !== null && currentVMs.length === 1) {
+                const vm = currentVMs[0];
+                const statusColor = vm.status === 'running' ? 'success' : 'danger';
+                const statusText = vm.status === 'running' ? 'Running' : 'Stopped';
+
+                container.innerHTML = `
+                    <div class="col-12 mb-4">
+                        <div class="card bg-dark border-0 shadow-sm">
+                            <div class="card-header border-0">
+                                <ul class="nav nav-tabs card-header-tabs">
+                                    <li class="nav-item">
+                                        <span class="nav-link active">Service information</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <span class="nav-link disabled">Scheduled tasks</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <span class="nav-link disabled">Troubleshoot</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <span class="nav-link disabled">Actions</span>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <p class="mb-1"><strong>Connection Info</strong> ${vm.rdp_ip}:${vm.rdp_port}</p>
+                                        <p class="mb-1"><strong>RDP User</strong> ${vm.rdp_username || 'Not set'}</p>
+                                        <p class="mb-1"><strong>VM ID</strong> ${vm.id}</p>
+                                        <p class="mb-3">
+                                            <strong>Status</strong>
+                                            <span class="badge bg-${statusColor} ms-2">${statusText}</span>
+                                        </p>
+                                        <div class="btn-group" role="group">
+                                            <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-success btn-sm" ${vm.status === 'running' ? 'disabled' : ''}>Start</button>
+                                            <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-danger btn-sm" ${vm.status !== 'running' ? 'disabled' : ''}>Stop</button>
+                                            <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-warning btn-sm" ${vm.status !== 'running' ? 'disabled' : ''}>Restart</button>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <p class="text-muted">Resource usage metrics are not available yet.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="connectVM(${vm.id})">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-plug fa-2x me-3"></i>
+                                        <div>
+                                            <div>Connect</div>
+                                            <small class="text-muted">Open Remote Desktop</small>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="openScreenshotModal(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-desktop fa-2x me-3"></i>
+                                        <div>
+                                            <div>Live Console</div>
+                                            <small class="text-muted">View VNC console</small>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="openSnapshotModal(${vm.id})">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-camera fa-2x me-3"></i>
+                                        <div>
+                                            <div>Snapshots</div>
+                                            <small class="text-muted">Manage restore points</small>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="openRDPModal(${vm.id})">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-cog fa-2x me-3"></i>
+                                        <div>
+                                            <div>Service Settings</div>
+                                            <small class="text-muted">RDP and VM credentials</small>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="getVmIp(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-network-wired fa-2x me-3"></i>
+                                        <div>
+                                            <div>IP Address</div>
+                                            <small class="text-muted">Show guest IP</small>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="downloadRDP(${vm.id})">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-download fa-2x me-3"></i>
+                                        <div>
+                                            <div>Download RDP</div>
+                                            <small class="text-muted">Save .rdp file</small>
+                                        </div>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
                 return;
             }
 
@@ -170,8 +303,7 @@
                 const statusText = vm.status === 'running' ? 'Running' : 'Stopped';
                 const statusPulse = '';
                 
-                // Determine OS icon (simple guess based on name, or default)
-                let osIcon = 'fa-windows'; // Default to windows for now
+                let osIcon = 'fa-windows';
                 if (vm.name.toLowerCase().includes('linux') || vm.name.toLowerCase().includes('ubuntu')) {
                     osIcon = 'fa-linux';
                 }
@@ -190,7 +322,21 @@
                         <div class="card-body">
                              <div class="mb-3 text-center">
                                 <i class="fas fa-server fa-3x text-secondary opacity-50"></i>
-                                <p class="mt-2 text-muted small">ID: ${vm.id} | ${vm.vmx_path.split('\\').pop()}</p>
+                                <p class="mt-2 text-muted small">ID: ${vm.id}</p>
+                                <p class="text-muted small mb-0">RDP: ${vm.rdp_ip}:${vm.rdp_port}</p>
+                                <p class="text-muted small">User: ${vm.rdp_username || 'Not set'}</p>
+                             </div>
+                             
+                             <div class="d-grid mb-3">
+                                <button onclick="connectVM(${vm.id})" class="btn btn-primary">
+                                    <i class="fas fa-plug"></i> Connect (Remote Desktop)
+                                </button>
+                             </div>
+                             
+                             <div class="d-grid mb-3">
+                                <button onclick="window.location.href='/server/${vm.id}'" class="btn btn-outline-light">
+                                    Open server page
+                                </button>
                              </div>
                              
                              <div class="d-grid gap-2 mb-3">
@@ -210,7 +356,7 @@
                              <div class="card-footer bg-transparent border-top-0 p-0 pt-3">
                                 <div class="d-grid gap-2">
                                     <button onclick="openScreenshotModal(${vm.id})" class="btn btn-sm btn-outline-primary" ${vm.status !== 'running' ? 'disabled' : ''}>
-                                        <i class="fas fa-desktop"></i> Live Monitor
+                                        <i class="fas fa-desktop"></i> Live Console
                                     </button>
                                     <button onclick="openSnapshotModal(${vm.id})" class="btn btn-sm btn-outline-warning">
                                         <i class="fas fa-camera"></i> Snapshots
@@ -233,7 +379,21 @@
             });
         } catch (err) {
             console.error(err);
+            showToast('Failed to load VMs', 'danger');
         }
+    }
+
+    function connectVM(vmId) {
+        const vm = currentVMs.find(v => v.id === vmId);
+        if (!vm) {
+            showToast('VM not found', 'danger');
+            return;
+        }
+        if (!vm.rdp_ip || !vm.rdp_port || !vm.rdp_username) {
+            openRDPModal(vmId);
+            return;
+        }
+        downloadRDP(vmId);
     }
     
     async function downloadRDP(vmId) {
@@ -272,16 +432,28 @@
             document.body.removeChild(a);
             
         } catch (err) {
-            alert('Download failed: ' + err.message);
+            showToast('Download failed: ' + err.message, 'danger');
         }
     }
 
     async function controlVM(id, action) {
         try {
             await api.post(`/vms/${id}/${action}`);
-            loadVMs(); // Refresh
+            loadVMs();
+            showToast('Action sent: ' + action, 'success');
         } catch (err) {
-            alert('Action failed: ' + (err.response?.data?.detail || err.message));
+            showToast('Action failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    async function getVmIp(vmId) {
+        try {
+            showToast('Fetching VM IP...', 'info');
+            const res = await api.get(`/vms/${vmId}/ip`);
+            const ip = res.data?.ip || 'Unknown';
+            showToast('VM IP: ' + ip, 'success');
+        } catch (err) {
+            showToast('Failed to get IP: ' + (err.response?.data?.detail || err.message), 'danger');
         }
     }
 
@@ -336,116 +508,129 @@
     document.getElementById('createSnapshotForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const vmId = document.getElementById('snapshotVmId').value;
-        const name = document.getElementById('snapshotName').value;
+        const nameInput = document.getElementById('snapshotName');
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        
+        const name = nameInput.value;
+        const originalBtnText = submitBtn.innerHTML;
+        
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Creating...';
+        nameInput.disabled = true;
         
         try {
             await api.post(`/vms/${vmId}/snapshots?name=${encodeURIComponent(name)}`);
-            document.getElementById('snapshotName').value = '';
+            nameInput.value = '';
+            showToast('Snapshot creation started. It may take some time to appear.', 'info');
             loadSnapshots(vmId);
-            alert('Snapshot created!');
+            setTimeout(() => loadSnapshots(vmId), 5000);
         } catch(err) {
-            alert('Failed: ' + (err.response?.data?.detail || err.message));
+            showToast('Failed to create snapshot: ' + (err.response?.data?.detail || err.message), 'danger');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnText;
+            nameInput.disabled = false;
+            nameInput.focus();
         }
     });
     
     async function revertSnapshot(vmId, name) {
         if(!confirm(`Are you sure you want to revert to snapshot "${name}"? Current state will be lost.`)) return;
+        
+        showToast('Reverting snapshot...', 'info');
+        
         try {
             await api.post(`/vms/${vmId}/snapshots/revert?name=${encodeURIComponent(name)}`);
-            alert('Reverted successfully!');
+            showToast('Reverted to snapshot successfully', 'success');
             // Ideally we should refresh VM status as it might change state
             loadVMs(); 
         } catch(err) {
-            alert('Failed: ' + (err.response?.data?.detail || err.message));
+            showToast('Failed to revert snapshot: ' + (err.response?.data?.detail || err.message), 'danger');
         }
     }
     
     async function deleteSnapshot(vmId, name) {
         if(!confirm(`Are you sure you want to delete snapshot "${name}"?`)) return;
-        try {
-            await api.delete(`/vms/${vmId}/snapshots/${encodeURIComponent(name)}`);
-            loadSnapshots(vmId);
-        } catch(err) {
-            alert('Failed: ' + (err.response?.data?.detail || err.message));
-        }
-    }
-
-    // Screenshot Modal Logic
-    let screenshotInterval = null;
-
-    async function updateScreenshot(vmId) {
-        const imgEl = document.getElementById('screenshotImage');
-        const timestamp = new Date().getTime();
+        
+        showToast('Deleting snapshot...', 'info');
         
         try {
-            const token = localStorage.getItem('token');
-            const response = await fetch(`/vms/${vmId}/screenshot?t=${timestamp}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) throw new Error('Failed to load');
-            
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            
-            // Preload image in background to prevent flickering
-            const tempImg = new Image();
-            tempImg.onload = () => {
-                const oldUrl = imgEl.src;
-                imgEl.src = url;
-                imgEl.style.opacity = '1';
-                
-                // Clean up memory
-                if (oldUrl && oldUrl.startsWith('blob:')) {
-                    URL.revokeObjectURL(oldUrl);
-                }
-            };
-            tempImg.src = url;
-            
-        } catch (err) {
-            // Don't clear image on transient error, just log
-            console.error("Screenshot error:", err);
+            await api.delete(`/vms/${vmId}/snapshots/${encodeURIComponent(name)}`);
+            showToast('Snapshot delete started. It may take some time to complete.', 'info');
+            loadSnapshots(vmId);
+            setTimeout(() => loadSnapshots(vmId), 5000);
+        } catch(err) {
+            showToast('Failed to delete snapshot: ' + (err.response?.data?.detail || err.message), 'danger');
+            loadSnapshots(vmId);
         }
     }
+
+    // VNC Logic
+    let rfb = null;
 
     async function openScreenshotModal(vmId) {
         const modalEl = document.getElementById('screenshotModal');
-        const imgEl = document.getElementById('screenshotImage');
+        const container = document.getElementById('vnc-container');
+        const statusEl = document.getElementById('vnc-status');
         
-        // Reset state
-        imgEl.style.opacity = '0.5';
-        imgEl.src = '';
-        imgEl.alt = 'Loading...';
-        
-        // Store VM ID
         modalEl.dataset.vmId = vmId;
-        
-        // Initial Load
-        await updateScreenshot(vmId);
-        
-        // Start Auto-Refresh (every 3 seconds)
-        if (screenshotInterval) clearInterval(screenshotInterval);
-        screenshotInterval = setInterval(() => updateScreenshot(vmId), 3000);
-        
         const modal = new bootstrap.Modal(modalEl);
         modal.show();
+
+        statusEl.textContent = "Connecting to VNC...";
+        statusEl.style.display = 'block';
+        container.innerHTML = '';
+
+        // Build WebSocket URL
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const url = `${protocol}://${window.location.host}/vms/${vmId}/vnc`;
+
+        try {
+            if (!window.RFB) {
+                statusEl.textContent = "Error: noVNC library not loaded.";
+                return;
+            }
+
+            rfb = new window.RFB(container, url);
+
+            rfb.addEventListener("connect",  () => {
+                statusEl.style.display = 'none';
+            });
+
+            rfb.addEventListener("disconnect", (e) => {
+                statusEl.textContent = "Disconnected: " + (e.detail.clean ? "Closed cleanly" : "Connection dropped");
+                statusEl.style.display = 'block';
+            });
+
+            rfb.addEventListener("credentialsrequired", () => {
+                // Should not happen if we don't set a password on the proxy, 
+                // but if we do, we need to handle it.
+                // rfb.sendCredentials({ password: "password" });
+            });
+
+            // Adjust scale
+            rfb.scaleViewport = true;
+            rfb.resizeSession = true;
+
+        } catch (err) {
+            console.error("VNC Error:", err);
+            statusEl.textContent = "Connection Failed: " + err.message;
+        }
+    }
+    
+    function sendCtrlAltDel() {
+        if (rfb) {
+            rfb.sendCtrlAltDel();
+        }
     }
 
-    // Stop refreshing when modal closes
+    // Disconnect when modal closes
     document.getElementById('screenshotModal').addEventListener('hidden.bs.modal', () => {
-        if (screenshotInterval) {
-            clearInterval(screenshotInterval);
-            screenshotInterval = null;
+        if (rfb) {
+            rfb.disconnect();
+            rfb = null;
         }
     });
-
-    function refreshScreenshot() {
-        const modalEl = document.getElementById('screenshotModal');
-        const vmId = modalEl.dataset.vmId;
-        if(vmId) updateScreenshot(vmId);
-    }
 
     function openRDPModal(vmId) {
         const vm = currentVMs.find(v => v.id === vmId);
@@ -458,52 +643,46 @@
         document.getElementById('guestUser').value = vm.guest_username || '';
         
         const passInput = document.getElementById('guestPass');
-        const passHelp = document.getElementById('guestPassHelp');
-        
-        if (vm.guest_password) {
-            passInput.placeholder = "Password is saved (leave blank to keep)";
-            passInput.value = ""; // Still keep it blank for security visual
-            if(passHelp) passHelp.textContent = "A password is currently saved.";
-            passInput.classList.add("is-valid"); // Green border to indicate it's set
-        } else {
-            passInput.placeholder = "Enter guest password";
-            passInput.value = "";
-            if(passHelp) passHelp.textContent = "";
-            passInput.classList.remove("is-valid");
-        }
-        
+        passInput.value = '';
+        document.getElementById('guestPassHelp').textContent = vm.guest_password ? '(Password is set)' : '';
+
         const modal = new bootstrap.Modal(document.getElementById('rdpModal'));
         modal.show();
     }
-
+    
     document.getElementById('rdpForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const vmId = document.getElementById('rdpVmId').value;
-        
-        const payload = {
-            rdp_ip: document.getElementById('rdpIp').value,
-            rdp_port: parseInt(document.getElementById('rdpPort').value),
-            rdp_username: document.getElementById('rdpUser').value,
-            guest_username: document.getElementById('guestUser').value
-        };
-        
-        const pass = document.getElementById('guestPass').value;
-        if(pass) payload.guest_password = pass;
+        const ip = document.getElementById('rdpIp').value;
+        const port = document.getElementById('rdpPort').value;
+        const user = document.getElementById('rdpUser').value;
+        const guestUser = document.getElementById('guestUser').value;
+        const guestPass = document.getElementById('guestPass').value;
         
         try {
-            await api.put(`/vms/${vmId}/rdp`, payload);
-            const modal = bootstrap.Modal.getInstance(document.getElementById('rdpModal'));
+            await api.post(`/vms/${vmId}/rdp`, {
+                rdp_ip: ip,
+                rdp_port: parseInt(port),
+                rdp_username: user,
+                guest_username: guestUser,
+                guest_password: guestPass || undefined
+            });
+            
+            await loadVMs();
+            
+            const modalEl = document.getElementById('rdpModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
             modal.hide();
-            loadVMs(); // Refresh to update local data
-            alert('Settings saved!');
-        } catch(err) {
-            alert('Failed to save settings: ' + (err.response?.data?.detail || err.message));
+            
+            showToast('Settings saved', 'success');
+        } catch (err) {
+            showToast('Failed to save settings: ' + (err.response?.data?.detail || err.message), 'danger');
         }
     });
-    
+
+    // Initial Load
     loadVMs();
     checkUserRole();
-    setInterval(loadVMs, 5000); // Auto refresh status
 
     async function checkUserRole() {
         try {
@@ -519,7 +698,6 @@
         }
     }
 
-    // Change Password Logic
     function openChangePasswordModal() {
         new bootstrap.Modal(document.getElementById('changePasswordModal')).show();
     }
@@ -532,23 +710,11 @@
         try {
             await api.post('/auth/me/password', { current_password: currentPassword, new_password: newPassword });
             bootstrap.Modal.getInstance(document.getElementById('changePasswordModal')).hide();
-            alert('Password updated successfully!');
+            showToast('Password updated successfully', 'success');
             document.getElementById('changePasswordForm').reset();
         } catch(err) {
-            alert('Failed to update password: ' + (err.response?.data?.detail || err.message));
+            showToast('Failed to update password: ' + (err.response?.data?.detail || err.message), 'danger');
         }
     });
-
-    // Get IP Logic
-    async function getVmIp(vmId) {
-        try {
-            // Show loading state (optional, maybe change icon to spinner)
-            // But since it's an alert, it's fine.
-            const res = await api.get(`/vms/${vmId}/ip`);
-            alert(`Guest IP Address: ${res.data.ip}`);
-        } catch(err) {
-            alert('Failed to get IP: ' + (err.response?.data?.detail || err.message));
-        }
-    }
 </script>
 {% endblock %}

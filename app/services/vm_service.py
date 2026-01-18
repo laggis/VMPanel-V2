@@ -139,4 +139,30 @@ class VMService:
     def delete_snapshot(self, vmx_path: str, name: str):
         return self._run_command("deleteSnapshot", vmx_path, [name])
 
+    def enable_vnc(self, vmx_path: str, port: int, password: str = None):
+        """
+        Enables VNC in the .vmx file.
+        Note: Requires VM restart to take effect.
+        """
+        if not os.path.exists(vmx_path):
+            raise Exception("VMX file not found")
+            
+        with open(vmx_path, 'r') as f:
+            lines = f.readlines()
+            
+        new_lines = []
+        # Remove existing VNC config
+        for line in lines:
+            if not line.strip().lower().startswith("remotedisplay.vnc"):
+                new_lines.append(line)
+        
+        # Add new VNC config
+        new_lines.append('RemoteDisplay.vnc.enabled = "TRUE"\n')
+        new_lines.append(f'RemoteDisplay.vnc.port = "{port}"\n')
+        if password:
+            new_lines.append(f'RemoteDisplay.vnc.password = "{password}"\n')
+            
+        with open(vmx_path, 'w') as f:
+            f.writelines(new_lines)
+
 vm_service = VMService()

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, WebSocket, BackgroundTasks
 from sqlmodel import Session, select
 from typing import List
 from app.core.database import engine
@@ -10,13 +10,15 @@ from app.routers.auth import get_current_active_user, get_session
 from app.services.vm_service import vm_service
 import datetime
 import os
+import asyncio
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
-def log_action(session: Session, user_id: int, action: str, vm_id: int, details: str = None):
-    log = AuditLog(user_id=user_id, action=action, vm_id=vm_id, details=details, timestamp=datetime.datetime.utcnow())
-    session.add(log)
-    session.commit()
+def log_action(user_id: int, action: str, vm_id: int, details: str = None):
+    with Session(engine) as session:
+        log = AuditLog(user_id=user_id, action=action, vm_id=vm_id, details=details, timestamp=datetime.datetime.utcnow())
+        session.add(log)
+        session.commit()
 
 @router.get("/", response_model=List[VMRead])
 def read_my_vms(
@@ -65,8 +67,20 @@ def start_vm(
          raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
+        # Ensure VNC is configured
+        if not vm.vnc_port:
+            vm.vnc_port = 5900 + vm.id
+            vm.vnc_enabled = True
+            # No password for now to keep it simple, or generate one
+            # vm.vnc_password = "password" 
+            session.add(vm)
+            session.commit()
+            
+        # Apply to VMX (only updates file, needs restart to take effect if changed)
+        vm_service.enable_vnc(vm.vmx_path, vm.vnc_port, vm.vnc_password)
+
         vm_service.start_vm(vm.vmx_path)
-        log_action(session, current_user.id, "start", vm_id)
+        log_action(current_user.id, "start", vm_id)
         return {"message": "VM started"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -85,7 +99,7 @@ def stop_vm(
     
     try:
         vm_service.stop_vm(vm.vmx_path)
-        log_action(session, current_user.id, "stop", vm_id)
+        log_action(current_user.id, "stop", vm_id)
         return {"message": "VM stopped"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -104,7 +118,7 @@ def restart_vm(
     
     try:
         vm_service.restart_vm(vm.vmx_path)
-        log_action(session, current_user.id, "restart", vm_id)
+        log_action(current_user.id, "restart", vm_id)
         return {"message": "VM restarted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -186,7 +200,7 @@ def get_vm_screenshot(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/{vm_id}/rdp")
+@router.post("/{vm_id}/rdp")
 def update_rdp_settings(
     vm_id: int, 
     vm_update: VMUpdate,
@@ -284,27 +298,30 @@ def list_snapshots(
 
 @router.post("/{vm_id}/snapshots")
 def create_snapshot(
-    vm_id: int, 
+    vm_id: int,
     name: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
     if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
         raise HTTPException(status_code=403, detail="Not authorized")
-        
-    try:
-        # Simple validation for name
-        if not name or len(name) > 50:
-             raise HTTPException(status_code=400, detail="Invalid snapshot name")
-             
-        vm_service.create_snapshot(vm.vmx_path, name)
-        log_action(session, current_user.id, "create_snapshot", vm_id, f"Created snapshot: {name}")
-        return {"message": "Snapshot created"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+    if not name or len(name) > 50:
+        raise HTTPException(status_code=400, detail="Invalid snapshot name")
+
+    def _create_and_log():
+        try:
+            vm_service.create_snapshot(vm.vmx_path, name)
+            log_action(current_user.id, "create_snapshot", vm_id, f"Created snapshot: {name}")
+        except Exception as e:
+            print(f"Snapshot create failed for VM {vm_id}: {e}")
+
+    background_tasks.add_task(_create_and_log)
+    return {"message": "Snapshot creation started"}
 
 @router.post("/{vm_id}/snapshots/revert")
 def revert_snapshot(
@@ -321,27 +338,96 @@ def revert_snapshot(
         
     try:
         vm_service.revert_snapshot(vm.vmx_path, name)
-        log_action(session, current_user.id, "revert_snapshot", vm_id, f"Reverted to: {name}")
+        log_action(current_user.id, "revert_snapshot", vm_id, f"Reverted to: {name}")
         return {"message": "Reverted to snapshot"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        msg = str(e)
+        if "The operation was canceled" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail="VMware canceled the revert operation. Make sure no other VMware tasks are running and try again.",
+            )
+        raise HTTPException(status_code=500, detail=msg)
 
 @router.delete("/{vm_id}/snapshots/{name}")
 def delete_snapshot(
-    vm_id: int, 
+    vm_id: int,
     name: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
     if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
         raise HTTPException(status_code=403, detail="Not authorized")
-        
+
+    def _delete_and_log():
+        try:
+            vm_service.delete_snapshot(vm.vmx_path, name)
+            log_action(current_user.id, "delete_snapshot", vm_id, f"Deleted snapshot: {name}")
+        except Exception as e:
+            msg = str(e)
+            if "The operation was canceled" in msg:
+                print(
+                    f"Snapshot delete canceled for VM {vm_id} / {name}: {msg}"
+                )
+            else:
+                print(f"Snapshot delete failed for VM {vm_id} / {name}: {msg}")
+
+    background_tasks.add_task(_delete_and_log)
+    return {"message": "Snapshot delete started"}
+
+
+@router.websocket("/{vm_id}/vnc")
+async def vnc_proxy(
+    websocket: WebSocket,
+    vm_id: int,
+    session: Session = Depends(get_session),
+):
+    await websocket.accept()
+
+    vm = session.get(VM, vm_id)
+    if not vm or not vm.vnc_port:
+        await websocket.close(code=1000)
+        return
+
     try:
-        vm_service.delete_snapshot(vm.vmx_path, name)
-        log_action(session, current_user.id, "delete_snapshot", vm_id, f"Deleted snapshot: {name}")
-        return {"message": "Snapshot deleted"}
+        reader, writer = await asyncio.open_connection("127.0.0.1", vm.vnc_port)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Failed to connect to VNC: {e}")
+        await websocket.close(code=1011)
+        return
+
+    async def forward_client_to_vnc():
+        try:
+            while True:
+                data = await websocket.receive_bytes()
+                writer.write(data)
+                await writer.drain()
+        except Exception:
+            pass
+
+    async def forward_vnc_to_client():
+        try:
+            while True:
+                data = await reader.read(4096)
+                if not data:
+                    break
+                await websocket.send_bytes(data)
+        except Exception:
+            pass
+
+    try:
+        await asyncio.gather(forward_client_to_vnc(), forward_vnc_to_client())
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass

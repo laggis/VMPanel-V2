@@ -44,6 +44,10 @@ async def login_page(request: Request):
 async def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
+@app.get("/server/{vm_id}", response_class=HTMLResponse)
+async def server_page(request: Request, vm_id: int):
+    return templates.TemplateResponse("dashboard.html", {"request": request, "vm_id": vm_id})
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})

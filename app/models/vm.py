@@ -15,3 +15,8 @@ class VM(SQLModel, table=True):
     # Guest Credentials (for vmrun operations)
     guest_username: Optional[str] = Field(default=None, max_length=255)
     guest_password: Optional[str] = Field(default=None, max_length=255)
+
+    # VNC Settings (for Live Console)
+    vnc_port: Optional[int] = Field(default=None)
+    vnc_password: Optional[str] = Field(default=None, max_length=8)
+    vnc_enabled: bool = Field(default=False)

@@ -232,6 +232,41 @@
       </div>
     </div>
 
+    <!-- Modal for Editing VM -->
+    <div class="modal fade" id="editVMModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Edit VPS</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="editVMForm">
+                <input type="hidden" id="editVMId">
+                <div class="mb-3">
+                    <label class="form-label">VM Name</label>
+                    <input type="text" id="editVMName" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">VMX Path</label>
+                    <input type="text" id="editVMPath" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Assign Owner</label>
+                    <select id="editVMOwner" class="form-select">
+                        <option value="">-- No Owner --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="table-responsive">
         <table class="table table-hover align-middle">
             <thead class="table-dark">
@@ -348,15 +383,26 @@
 
     function updateOwnerDropdown() {
         const select = document.getElementById('vmOwner');
+        const editSelect = document.getElementById('editVMOwner');
         const currentVal = select.value;
-        select.innerHTML = '<option value="">-- No Owner --</option>' + 
+        const currentEditVal = editSelect.value;
+        
+        const options = '<option value="">-- No Owner --</option>' + 
             users.map(u => `<option value="${u.id}">${u.username} (ID: ${u.id})</option>`).join('');
+            
+        select.innerHTML = options;
+        editSelect.innerHTML = options;
+        
         if (currentVal) select.value = currentVal;
+        if (currentEditVal) editSelect.value = currentEditVal;
     }
+
+    let currentVMs = [];
 
     async function loadVMs() {
         try {
             const res = await api.get('/admin/vms');
+            currentVMs = res.data;
             const tbody = document.getElementById('vmTableBody');
             tbody.innerHTML = res.data.map(v => {
                 const owner = users.find(u => u.id === v.owner_id);
@@ -367,7 +413,7 @@
                     <td><small class="text-muted text-truncate d-inline-block" style="max-width: 250px;" title="${v.vmx_path}">${v.vmx_path}</small></td>
                     <td>${owner ? `<span class="badge bg-info">${owner.username}</span>` : '<span class="badge bg-secondary">Unassigned</span>'}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" title="Edit" onclick="alert('Edit feature coming soon')"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-sm btn-outline-primary" title="Edit" onclick="openEditVMModal(${v.id})"><i class="fas fa-edit"></i></button>
                         <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="deleteVM(${v.id})"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>
@@ -405,6 +451,41 @@
             alert('Failed to delete VM: ' + (err.response?.data?.detail || err.message));
         }
     }
+
+    function openEditVMModal(vmId) {
+        const vm = currentVMs.find(v => v.id === vmId);
+        if (!vm) return;
+
+        document.getElementById('editVMId').value = vm.id;
+        document.getElementById('editVMName').value = vm.name;
+        document.getElementById('editVMPath').value = vm.vmx_path;
+        document.getElementById('editVMOwner').value = vm.owner_id || "";
+
+        const modal = new bootstrap.Modal(document.getElementById('editVMModal'));
+        modal.show();
+    }
+
+    document.getElementById('editVMForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const vmId = document.getElementById('editVMId').value;
+        const ownerId = document.getElementById('editVMOwner').value;
+        
+        const payload = {
+            name: document.getElementById('editVMName').value,
+            vmx_path: document.getElementById('editVMPath').value,
+            owner_id: ownerId ? parseInt(ownerId) : null
+        };
+
+        try {
+            await api.put(`/admin/vms/${vmId}`, payload);
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editVMModal'));
+            modal.hide();
+            loadVMs();
+            alert('VM updated successfully!');
+        } catch(err) {
+            alert('Failed to update VM: ' + (err.response?.data?.detail || err.message));
+        }
+    });
 
     async function scanVMs() {
         const btn = document.querySelector('button[onclick="scanVMs()"]');
