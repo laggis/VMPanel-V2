@@ -223,6 +223,10 @@
                         <!-- Populated by JS -->
                     </select>
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">Expiration Date</label>
+                    <input type="date" id="vmExpiration" class="form-control">
+                </div>
                 <div class="d-grid">
                     <button type="submit" class="btn btn-primary">Register VM</button>
                 </div>
@@ -257,6 +261,10 @@
                         <option value="">-- No Owner --</option>
                         <!-- Populated by JS -->
                     </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Expiration Date</label>
+                    <input type="date" id="editVMExpiration" class="form-control">
                 </div>
                 <div class="d-grid">
                     <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -549,10 +557,12 @@
         e.preventDefault();
         try {
             const ownerId = document.getElementById('vmOwner').value;
+            const expiration = document.getElementById('vmExpiration').value;
             await api.post('/admin/vms', {
                 name: document.getElementById('vmName').value,
                 vmx_path: document.getElementById('vmPath').value,
-                owner_id: ownerId ? parseInt(ownerId) : null
+                owner_id: ownerId ? parseInt(ownerId) : null,
+                expiration_date: expiration ? expiration : null
             });
             loadVMs();
             e.target.reset();

@@ -10,3 +10,4 @@ pymysql
 cryptography
 pydantic-settings
 psutil
+httpx

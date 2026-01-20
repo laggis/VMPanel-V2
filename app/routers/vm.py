@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, WebSocket, BackgroundTasks
+from pydantic import BaseModel
 from sqlmodel import Session, select
 from typing import List
 from app.core.database import engine
@@ -298,30 +299,23 @@ def list_snapshots(
 
 @router.post("/{vm_id}/snapshots")
 def create_snapshot(
-    vm_id: int,
+    vm_id: int, 
     name: str,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_session)
 ):
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
     if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
         raise HTTPException(status_code=403, detail="Not authorized")
-
-    if not name or len(name) > 50:
-        raise HTTPException(status_code=400, detail="Invalid snapshot name")
-
-    def _create_and_log():
-        try:
-            vm_service.create_snapshot(vm.vmx_path, name)
-            log_action(current_user.id, "create_snapshot", vm_id, f"Created snapshot: {name}")
-        except Exception as e:
-            print(f"Snapshot create failed for VM {vm_id}: {e}")
-
-    background_tasks.add_task(_create_and_log)
-    return {"message": "Snapshot creation started"}
+        
+    try:
+        vm_service.create_snapshot(vm.vmx_path, name)
+        log_action(current_user.id, "snapshot_create", vm_id, f"Created snapshot: {name}")
+        return {"message": "Snapshot created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{vm_id}/snapshots/revert")
 def revert_snapshot(
@@ -338,46 +332,74 @@ def revert_snapshot(
         
     try:
         vm_service.revert_snapshot(vm.vmx_path, name)
-        log_action(current_user.id, "revert_snapshot", vm_id, f"Reverted to: {name}")
+        log_action(current_user.id, "snapshot_revert", vm_id, f"Reverted to snapshot: {name}")
         return {"message": "Reverted to snapshot"}
     except Exception as e:
-        msg = str(e)
-        if "The operation was canceled" in msg:
-            raise HTTPException(
-                status_code=400,
-                detail="VMware canceled the revert operation. Make sure no other VMware tasks are running and try again.",
-            )
-        raise HTTPException(status_code=500, detail=msg)
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/{vm_id}/snapshots/{name}")
+@router.delete("/{vm_id}/snapshots")
 def delete_snapshot(
-    vm_id: int,
+    vm_id: int, 
     name: str,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_session)
 ):
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
     if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
         raise HTTPException(status_code=403, detail="Not authorized")
+        
+    try:
+        vm_service.delete_snapshot(vm.vmx_path, name)
+        log_action(current_user.id, "snapshot_delete", vm_id, f"Deleted snapshot: {name}")
+        return {"message": "Snapshot deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    def _delete_and_log():
-        try:
-            vm_service.delete_snapshot(vm.vmx_path, name)
-            log_action(current_user.id, "delete_snapshot", vm_id, f"Deleted snapshot: {name}")
-        except Exception as e:
-            msg = str(e)
-            if "The operation was canceled" in msg:
-                print(
-                    f"Snapshot delete canceled for VM {vm_id} / {name}: {msg}"
-                )
-            else:
-                print(f"Snapshot delete failed for VM {vm_id} / {name}: {msg}")
+class ChangePasswordRequest(BaseModel):
+    new_password: str
 
-    background_tasks.add_task(_delete_and_log)
-    return {"message": "Snapshot delete started"}
+@router.post("/{vm_id}/change_password")
+def change_guest_password(
+    vm_id: int, 
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if VM is running
+    if not vm_service.is_running(vm.vmx_path):
+         raise HTTPException(status_code=400, detail="VM must be running to change password")
+
+    # Check if we have current credentials
+    if not vm.guest_username or not vm.guest_password:
+        raise HTTPException(status_code=400, detail="Current guest credentials (username/password) are missing in Settings. Please set them first.")
+
+    try:
+        # Change password in Guest
+        vm_service.change_guest_password(
+            vm.vmx_path, 
+            vm.guest_username, 
+            payload.new_password, 
+            vm.guest_username, 
+            vm.guest_password
+        )
+        
+        # Update DB with new password
+        vm.guest_password = payload.new_password
+        session.add(vm)
+        session.commit()
+        
+        log_action(current_user.id, "change_password", vm_id, "Changed guest password")
+        return {"message": "Password changed successfully in VM and database"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.websocket("/{vm_id}/vnc")

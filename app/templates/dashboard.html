@@ -110,11 +110,45 @@
             </div>
             <div class="mb-3">
                 <label class="form-label">VM Password</label>
-                <input type="password" id="guestPass" class="form-control" placeholder="Enter only to update">
+                <div class="input-group">
+                    <input type="password" id="guestPass" class="form-control" placeholder="Enter only to update">
+                    <button type="button" class="btn btn-outline-warning" onclick="changeVmPassword()">
+                        <i class="fas fa-key"></i> Apply to VM
+                    </button>
+                </div>
                 <div id="guestPassHelp" class="form-text text-success"></div>
+                <div class="form-text">
+                    <strong>Note:</strong> "Save Settings" only updates the Panel database. 
+                    "Apply to VM" attempts to change the Windows password inside the running VM (requires current credentials to be valid).
+                </div>
             </div>
             <div class="d-grid">
                 <button type="submit" class="btn btn-primary">Save Settings</button>
+            </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Expiration Modal -->
+<div class="modal fade" id="expirationModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Expiration Date</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="expirationForm">
+            <input type="hidden" id="expirationVmId">
+            <div class="mb-3">
+                <label class="form-label">Expiration Date</label>
+                <input type="date" id="expirationDate" class="form-control">
+                <div class="form-text">Leave empty to remove expiration.</div>
+            </div>
+            <div class="d-grid">
+                <button type="submit" class="btn btn-primary">Save Changes</button>
             </div>
         </form>
       </div>
@@ -161,8 +195,10 @@
     const selectedVmIdRaw = "{{ vm_id|default('') }}";
     const selectedVmId = selectedVmIdRaw ? parseInt(selectedVmIdRaw, 10) : null;
     let currentVMs = [];
+    let isAdmin = false;
 
     async function loadVMs() {
+        console.log("Loading VMs... Admin status:", isAdmin);
         try {
             const response = await api.get('/vms/');
             const allVMs = response.data;
@@ -208,6 +244,11 @@
                                         <p class="mb-3">
                                             <strong>Status</strong>
                                             <span class="badge bg-${statusColor} ms-2">${statusText}</span>
+                                        </p>
+                                        <p class="mb-3">
+                                            <strong>Expires</strong>
+                                            <span class="text-white ms-2 me-2">${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}</span>
+                                            ${isAdmin ? `<button onclick="openExpirationModal(${vm.id})" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size: 0.8rem;" title="Edit Expiration"><i class="fas fa-edit"></i> Edit</button>` : ''}
                                         </p>
                                         <div class="btn-group" role="group">
                                             <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-success btn-sm" ${vm.status === 'running' ? 'disabled' : ''}>Start</button>
@@ -324,7 +365,11 @@
                                 <i class="fas fa-server fa-3x text-secondary opacity-50"></i>
                                 <p class="mt-2 text-muted small">ID: ${vm.id}</p>
                                 <p class="text-muted small mb-0">RDP: ${vm.rdp_ip}:${vm.rdp_port}</p>
-                                <p class="text-muted small">User: ${vm.rdp_username || 'Not set'}</p>
+                                <p class="text-muted small mb-0">User: ${vm.rdp_username || 'Not set'}</p>
+                                <p class="text-muted small">
+                                   Expires: ${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}
+                                   ${isAdmin ? `<button onclick="openExpirationModal(${vm.id})" class="btn btn-sm btn-outline-warning py-0 px-1 ms-1" style="font-size: 0.7rem;" title="Edit Expiration"><i class="fas fa-edit"></i></button>` : ''}
+                                </p>
                              </div>
                              
                              <div class="d-grid mb-3">
@@ -680,6 +725,72 @@
         }
     });
 
+    async function changeVmPassword() {
+        const vmId = document.getElementById('rdpVmId').value;
+        const newPass = document.getElementById('guestPass').value;
+        
+        if (!newPass) {
+            showToast('Please enter a new password first.', 'warning');
+            return;
+        }
+        
+        if (!confirm('This will attempt to change the password INSIDE the Windows VM. The VM must be running and Tools installed. Continue?')) {
+            return;
+        }
+        
+        showToast('Attempting to change VM password... This may take a moment.', 'info');
+        
+        try {
+            await api.post(`/vms/${vmId}/change_password`, { new_password: newPass });
+            showToast('Password successfully changed inside VM!', 'success');
+            // Also save to DB implicitly by the endpoint, but let's refresh settings UI if needed
+            // Actually the endpoint updates DB too.
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to change VM password: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    // Expiration Modal Logic
+    function openExpirationModal(vmId) {
+        const vm = currentVMs.find(v => v.id === vmId);
+        if (!vm) return;
+        
+        document.getElementById('expirationVmId').value = vmId;
+        
+        if (vm.expiration_date) {
+            const date = new Date(vm.expiration_date);
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            document.getElementById('expirationDate').value = `${yyyy}-${mm}-${dd}`;
+        } else {
+            document.getElementById('expirationDate').value = '';
+        }
+        
+        new bootstrap.Modal(document.getElementById('expirationModal')).show();
+    }
+    
+    document.getElementById('expirationForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const vmId = document.getElementById('expirationVmId').value;
+        const dateStr = document.getElementById('expirationDate').value;
+        
+        let payload = { expiration_date: null };
+        if (dateStr) {
+            payload.expiration_date = new Date(dateStr).toISOString();
+        }
+        
+        try {
+            await api.put(`/admin/vms/${vmId}`, payload);
+            showToast('Expiration date updated', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('expirationModal')).hide();
+            loadVMs();
+        } catch (err) {
+            showToast('Failed to update: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    });
+
     // Initial Load
     loadVMs();
     checkUserRole();
@@ -691,10 +802,16 @@
             document.getElementById('welcomeUser').textContent = `Welcome, ${user.username}`;
             
             if (user.role === 'admin') {
+                console.log("User is admin, enabling admin features.");
                 document.getElementById('adminLink').style.display = 'block';
+                isAdmin = true;
+                window.isAdmin = true; // For debugging
+                loadVMs();
+            } else {
+                console.log("User is NOT admin. Role:", user.role);
             }
         } catch (err) {
-            console.error(err);
+            console.error("Error checking user role:", err);
         }
     }
 

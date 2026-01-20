@@ -12,20 +12,29 @@ A comprehensive, modern web-based control panel for managing VMware Workstation 
   - Start, Stop, Restart.
   - Real-time status indicators (Running/Stopped).
   - Snapshot Management (Create, Delete, Revert) with non-blocking background operations.
+  - **Change Guest Password**: Update the Windows Administrator password directly from the panel (requires VM to be running).
 - **Information**:
   - Connection details (IP, Port, RDP User).
   - Service information.
+  - **Expiration Tracking**: View remaining time until service expiration.
 
 ### Admin Panel
 - **VM Management**:
   - Add existing VMs by `.vmx` path.
-  - **Edit VM**: Update owner, RDP port, RDP username, and VMX path.
+  - **Edit VM**: Update owner, RDP port, RDP username, VMX path, and **Expiration Date**.
   - Assign VMs to specific users.
+  - **Dashboard Editing**: Admins can also edit expiration dates directly from the user dashboard.
 - **User Management**:
   - Create, Update, Delete users.
   - Assign Roles (Admin/User).
 - **System Monitor**: View server resource usage.
 - **Audit Logs**: Track user actions.
+
+### Notifications
+- **Discord Integration**: Automatic alerts sent to a configured Discord Webhook for:
+  - Upcoming expirations (30 days, 7 days, 3 days, 1 day).
+  - Service expiration (Day 0).
+  - Overdue services (Day -1).
 
 ## Prerequisites
 
@@ -42,6 +51,7 @@ A comprehensive, modern web-based control panel for managing VMware Workstation 
     ```
 3.  **Configuration**:
     - The application configuration is located in `app/core/config.py`.
+    - **Discord Webhook**: Set `DISCORD_WEBHOOK_URL` in `app/core/config.py` to receive expiration alerts.
     - Database: Defaults to SQLite (`test.db`) for easy setup.
     - **Important**: Ensure `VMRUN_PATH` in `app/services/vm_service.py` points to your correct `vmrun.exe` location.
 

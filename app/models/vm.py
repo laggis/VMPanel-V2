@@ -1,11 +1,13 @@
 from sqlmodel import SQLModel, Field
 from typing import Optional
+from datetime import datetime
 
 class VM(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(max_length=255)
     vmx_path: str = Field(unique=True, max_length=512)
     owner_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    expiration_date: Optional[datetime] = Field(default=None)
     
     # RDP Settings
     rdp_ip: str = Field(default="remotedesktop.penguinhosting.host", max_length=255)

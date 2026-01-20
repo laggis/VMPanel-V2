@@ -165,4 +165,20 @@ class VMService:
         with open(vmx_path, 'w') as f:
             f.writelines(new_lines)
 
+    def change_guest_password(self, vmx_path: str, username: str, new_password: str, current_user: str, current_pass: str):
+        """
+        Changes the password of a user inside the guest OS.
+        Currently supports Windows guests via 'net user'.
+        Requires valid current guest credentials (current_user, current_pass).
+        """
+        # Command: net user <username> <new_password>
+        # We use runProgramInGuest to execute net.exe directly
+        return self._run_command(
+            "runProgramInGuest", 
+            vmx_path, 
+            ["-activeWindow", "-interactive", "C:\\Windows\\System32\\net.exe", "user", username, new_password], 
+            guest_user=current_user, 
+            guest_pass=current_pass
+        )
+
 vm_service = VMService()

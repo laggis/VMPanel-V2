@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
+from datetime import datetime
 from app.models.user import Role
 
 class Token(BaseModel):
@@ -45,6 +46,7 @@ class VMRead(VMBase):
     # Do not return guest_password for security reasons usually, but user needs to see if it's set? 
     # Or maybe return it if they are the owner. For now let's return it so they can edit it.
     guest_password: Optional[str] = None
+    expiration_date: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 
 class VMUpdate(BaseModel):
@@ -56,3 +58,4 @@ class VMUpdate(BaseModel):
     rdp_username: Optional[str] = None
     guest_username: Optional[str] = None
     guest_password: Optional[str] = None
+    expiration_date: Optional[datetime] = None
