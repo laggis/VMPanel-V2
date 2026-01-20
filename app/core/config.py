@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     VMRUN_PATH: str = r"C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe"
-    DISCORD_WEBHOOK_URL: str = "https://discord.com/api/webhooks/1463171996295626784/95Mq9G_fVBrURQkzK23dSgRihZxsXT7A_QyuTm8Dm1QfVoTiztV2guB9PnAp2jmm2mLy"  # Add your Discord Webhook URL here
+    DISCORD_WEBHOOK_URL: str = ""  # Add your Discord Webhook URL here
 
     class Config:
         env_file = ".env"
