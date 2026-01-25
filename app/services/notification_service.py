@@ -21,7 +21,7 @@ class NotificationService:
             "title": title,
             "description": description,
             "color": color,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
         
         # Default footer if not provided

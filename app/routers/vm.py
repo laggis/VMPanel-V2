@@ -70,7 +70,9 @@ async def send_vm_notification(vm: VM, action: str, status: str = "Success", det
     if action in public_actions and status == "Success":
         is_public_event = True
     
-    # 3. Send to Owner (if exists)
+    # 3. Determine Owner Webhook
+    target_user_webhook = None
+    
     if vm.owner_id:
         with Session(engine) as session:
             owner = session.get(User, vm.owner_id)
@@ -78,8 +80,6 @@ async def send_vm_notification(vm: VM, action: str, status: str = "Success", det
                 # User Notification Logic:
                 # 1. Public Events -> Try 'Public Webhook', fallback to 'Main Webhook'
                 # 2. Private Events -> 'Main Webhook' only.
-                
-                target_user_webhook = None
                 
                 if is_public_event:
                      # Prefer Public Webhook if set, otherwise Main
@@ -91,18 +91,35 @@ async def send_vm_notification(vm: VM, action: str, status: str = "Success", det
                      # Private Event (Security/Errors) -> Main Webhook only
                      if owner.discord_webhook_url:
                          target_user_webhook = owner.discord_webhook_url
-                
-                if target_user_webhook:
-                    await notification_service.send_discord_alert(
-                        title=title, 
-                        description=description, 
-                        color=color, 
-                        fields=fields, 
-                        webhook_url=target_user_webhook,
-                        thumbnail_url=thumbnail_url,
-                        author=author,
-                        footer=footer
-                    )
+    
+    # 4. Send to Owner
+    if target_user_webhook:
+        await notification_service.send_discord_alert(
+            title=title, 
+            description=description, 
+            color=color, 
+            fields=fields, 
+            webhook_url=target_user_webhook,
+            thumbnail_url=thumbnail_url,
+            author=author,
+            footer=footer
+        )
+
+    # 5. Send to System Admin (Global Webhook)
+    # We always send to admin for logging, unless it's a duplicate of the user's webhook
+    global_webhook = settings.DISCORD_WEBHOOK_URL
+    
+    if global_webhook and target_user_webhook != global_webhook:
+         await notification_service.send_discord_alert(
+            title=title, 
+            description=description, 
+            color=color, 
+            fields=fields, 
+            webhook_url=global_webhook,
+            thumbnail_url=thumbnail_url,
+            author=author,
+            footer=footer
+        )
 async def background_reinstall_vm(vm_id: int):
     with Session(engine) as session:
         vm = session.get(VM, vm_id)

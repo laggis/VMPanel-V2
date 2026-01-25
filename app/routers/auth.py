@@ -78,11 +78,12 @@ async def update_user_profile(
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
-    if profile.discord_webhook_url is not None:
-        current_user.discord_webhook_url = profile.discord_webhook_url
+    # Use exclude_unset=True to distinguish between "not sent" and "sent as null"
+    # This allows users to clear their webhooks by sending null
+    update_data = profile.dict(exclude_unset=True)
     
-    if profile.discord_webhook_public is not None:
-        current_user.discord_webhook_public = profile.discord_webhook_public
+    for key, value in update_data.items():
+        setattr(current_user, key, value)
         
     session.add(current_user)
     session.commit()
