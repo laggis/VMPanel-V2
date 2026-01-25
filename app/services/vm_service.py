@@ -1,6 +1,8 @@
 import subprocess
 import logging
 import os
+import psutil
+import base64
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -12,11 +14,25 @@ class VMService:
         if not os.path.exists(self.vmrun_path):
             logger.warning(f"vmrun not found at {self.vmrun_path}. VM operations will fail.")
 
+    def _decode_output(self, data: bytes) -> str:
+        """Helper to decode bytes using multiple encodings (UTF-8, OEM, MBCS)."""
+        if not data:
+            return ""
+        # Try UTF-8 first (standard)
+        # Then OEM (likely for console apps like vmrun on Windows)
+        # Then MBCS (ANSI, system default)
+        for encoding in ['utf-8', 'oem', 'mbcs']:
+            try:
+                return data.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return data.decode('utf-8', errors='replace')
+
     def _run_command(self, command: str, vmx_path: str = None, params: list = None, guest_user: str = None, guest_pass: str = None):
         cmd = [self.vmrun_path, "-T", "ws"] # -T ws for Workstation
         
         # Add guest credentials if provided
-        if guest_user and guest_pass:
+        if guest_user and guest_pass is not None:
             cmd.extend(["-gu", guest_user, "-gp", guest_pass])
             
         cmd.append(command)
@@ -40,19 +56,24 @@ class VMService:
         
         try:
             # shell=False is safer.
+            # Capture as bytes (text=False) to handle encoding manually
             result = subprocess.run(
                 cmd, 
                 capture_output=True, 
-                text=True, 
+                text=False, 
                 check=True
             )
-            return result.stdout.strip()
+            return self._decode_output(result.stdout).strip()
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error running vmrun {command}: {e.stderr}")
-            if e.stdout:
-                logger.error(f"Stdout: {e.stdout}")
+            # Decode stderr/stdout for logging
+            stderr_str = self._decode_output(e.stderr)
+            stdout_str = self._decode_output(e.stdout)
+            
+            logger.error(f"Error running vmrun {command}: {stderr_str}")
+            if stdout_str:
+                logger.error(f"Stdout: {stdout_str}")
             # Clean error message
-            err_msg = e.stderr.strip() if e.stderr else (e.stdout.strip() if e.stdout else "Unknown error")
+            err_msg = stderr_str.strip() if stderr_str else (stdout_str.strip() if stdout_str else "Unknown error")
             raise Exception(f"VM Operation Failed: {err_msg}")
         except FileNotFoundError:
              raise Exception(f"vmrun executable not found at {self.vmrun_path}")
@@ -92,6 +113,47 @@ class VMService:
     def get_vm_status(self, vmx_path: str):
         return "running" if self.is_running(vmx_path) else "stopped"
 
+    def get_vm_stats(self, vmx_path: str):
+        """
+        Returns a dict with 'cpu_percent' and 'memory_mb' for the VM process.
+        Returns None if VM process is not found.
+        """
+        target_vmx = os.path.normpath(vmx_path).lower()
+        
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    if proc.info['name'] and 'vmware-vmx' in proc.info['name'].lower():
+                        cmdline = proc.info.get('cmdline', [])
+                        if not cmdline:
+                            continue
+                            
+                        # Check if this process belongs to the requested VMX
+                        for arg in cmdline:
+                            if arg.lower().endswith('.vmx'):
+                                if os.path.normpath(arg).lower() == target_vmx:
+                                    # Found it!
+                                    p = psutil.Process(proc.info['pid'])
+                                    # Interval 1.5s to get a meaningful CPU reading
+                                    # cpu_percent returns usage across all cores.
+                                    # e.g. 200% = 2 cores fully used.
+                                    # To scale to "System CPU %", divide by cpu_count.
+                                    cpu_raw = p.cpu_percent(interval=1.5)
+                                    cpu_system = cpu_raw / psutil.cpu_count()
+                                    
+                                    mem_mb = p.memory_info().rss / (1024 * 1024)
+                                    
+                                    return {
+                                        "cpu_percent": round(cpu_system, 2),
+                                        "memory_mb": round(mem_mb, 0)
+                                    }
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
+        except Exception as e:
+            logger.error(f"Error getting VM stats: {e}")
+            
+        return None
+
     def capture_screen(self, vmx_path: str, target_path: str, guest_user: str = None, guest_pass: str = None):
         """Captures the screen of the running VM to the target path."""
         # Ensure directory exists
@@ -106,12 +168,12 @@ class VMService:
         """Gets the IP address of the guest OS."""
         # vmrun -T ws getGuestIPAddress <path> [-wait]
         # Note: Requires VMware Tools to be running in the guest.
-        # We can add -wait but that blocks. Default is instant but might fail if tools not ready.
+        # We removed -wait to avoid blocking.
         try:
-            return self._run_command("getGuestIPAddress", vmx_path, ["-wait"], guest_user=guest_user, guest_pass=guest_pass)
+            return self._run_command("getGuestIPAddress", vmx_path, [], guest_user=guest_user, guest_pass=guest_pass)
         except Exception as e:
             # If it fails, it might be because tools aren't ready or installed.
-            logger.warning(f"Failed to get IP for {vmx_path}: {e}")
+            # logger.warning(f"Failed to get IP for {vmx_path}: {e}") # Reduce log noise during polling
             return "Unknown (Tools not ready?)"
 
     def list_snapshots(self, vmx_path: str):
@@ -139,6 +201,54 @@ class VMService:
     def delete_snapshot(self, vmx_path: str, name: str):
         return self._run_command("deleteSnapshot", vmx_path, [name])
 
+    def delete_vm(self, vmx_path: str):
+        """
+        Deletes the VM and its files.
+        """
+        return self._run_command("deleteVM", vmx_path)
+
+    def get_vm_specs(self, vmx_path: str) -> dict:
+        """
+        Reads the .vmx file and returns CPU/RAM specs.
+        """
+        if not os.path.exists(vmx_path):
+            return {"cpu_count": 2, "memory_mb": 4096} # Default fallback
+
+        specs = {"cpu_count": 2, "memory_mb": 4096}
+        try:
+            with open(vmx_path, 'r') as f:
+                for line in f:
+                    line = line.strip().lower()
+                    if line.startswith("numvcpus"):
+                        parts = line.split("=")
+                        if len(parts) > 1:
+                            specs["cpu_count"] = int(parts[1].strip().strip('"'))
+                    elif line.startswith("memsize"):
+                        parts = line.split("=")
+                        if len(parts) > 1:
+                            specs["memory_mb"] = int(parts[1].strip().strip('"'))
+        except Exception as e:
+            logger.error(f"Failed to read VM specs from {vmx_path}: {e}")
+        
+        return specs
+
+    def clone_vm(self, source_vmx: str, dest_vmx: str, clone_name: str, clone_type: str = "full", snapshot_name: str = None):
+        """
+        Clones a VM.
+        clone_type: 'full' or 'linked'
+        snapshot_name: Required for linked clones.
+        """
+        # Ensure dest directory exists
+        os.makedirs(os.path.dirname(dest_vmx), exist_ok=True)
+        
+        # vmrun clone <source> <dest> <full|linked> -snapshot=<name> -cloneName=<name>
+        params = [dest_vmx, clone_type]
+        if snapshot_name:
+            params.append(f"-snapshot={snapshot_name}")
+        params.append(f"-cloneName={clone_name}")
+        
+        return self._run_command("clone", source_vmx, params)
+
     def enable_vnc(self, vmx_path: str, port: int, password: str = None):
         """
         Enables VNC in the .vmx file.
@@ -165,6 +275,92 @@ class VMService:
         with open(vmx_path, 'w') as f:
             f.writelines(new_lines)
 
+    def update_specs(self, vmx_path: str, cpu_count: int = None, memory_mb: int = None):
+        """
+        Updates the CPU and Memory settings in the .vmx file.
+        vmx_path: Path to the .vmx file
+        cpu_count: Number of cores (optional)
+        memory_mb: RAM in MB (optional)
+        """
+        if not os.path.exists(vmx_path):
+            raise Exception("VMX file not found")
+            
+        with open(vmx_path, 'r') as f:
+            lines = f.readlines()
+            
+        new_lines = []
+        for line in lines:
+            key = line.split('=')[0].strip().lower()
+            if cpu_count and (key == "numvcpus" or key == "cpuid.corespersocket"):
+                continue # Skip existing CPU lines
+            if memory_mb and key == "memsize":
+                continue # Skip existing Memory lines
+            new_lines.append(line)
+            
+        # Ensure the last line ends with a newline
+        if new_lines and not new_lines[-1].endswith('\n'):
+            new_lines[-1] += '\n'
+
+        # Append new settings
+        if cpu_count:
+            # Set total cores
+            new_lines.append(f'numvcpus = "{cpu_count}"\n')
+            # For simplicity, 1 socket, N cores
+            new_lines.append(f'cpuid.coresPerSocket = "{cpu_count}"\n')
+            
+        if memory_mb:
+            new_lines.append(f'memsize = "{memory_mb}"\n')
+            
+        with open(vmx_path, 'w') as f:
+            f.writelines(new_lines)
+
+    def revert_to_snapshot(self, vmx_path: str, snapshot_name: str):
+        """
+        Reverts the VM to a named snapshot.
+        """
+        return self._run_command("revertToSnapshot", vmx_path, [snapshot_name])
+
+    def list_snapshots(self, vmx_path: str) -> list:
+        """
+        Lists all snapshots for a VM.
+        Returns a list of snapshot names.
+        """
+        output = self._run_command("listSnapshots", vmx_path)
+        # Output format:
+        # Total snapshots: 1
+        # SnapshotName
+        lines = output.splitlines()
+        snapshots = []
+        if len(lines) > 1:
+            for line in lines[1:]:
+                name = line.strip()
+                if name:
+                    snapshots.append(name)
+        return snapshots
+
+    def run_script_in_guest(self, vmx_path: str, username: str, password: str, script_text: str, interpreter: str = "powershell"):
+        """
+        Runs a script in the guest OS.
+        interpreter: 'powershell' or 'cmd' or 'bash'
+        """
+        # Save script to a temp file on host? 
+        # vmrun runScriptInGuest <path to vmx> <interpreter path> <script text>
+        
+        # Use full path for PowerShell to avoid "A file was not found" errors
+        interp_path = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        if interpreter == "cmd":
+             interp_path = "C:\\Windows\\System32\\cmd.exe"
+        elif interpreter == "bash":
+             interp_path = "/bin/bash"
+        
+        return self._run_command(
+            "runScriptInGuest",
+            vmx_path,
+            [interp_path, script_text],
+            guest_user=username,
+            guest_pass=password
+        )
+
     def change_guest_password(self, vmx_path: str, username: str, new_password: str, current_user: str, current_pass: str):
         """
         Changes the password of a user inside the guest OS.
@@ -173,12 +369,91 @@ class VMService:
         """
         # Command: net user <username> <new_password>
         # We use runProgramInGuest to execute net.exe directly
-        return self._run_command(
-            "runProgramInGuest", 
+        # Use interactive=False to avoid "user must be logged in" errors (runs in session 0)
+        return self.run_program_in_guest(
             vmx_path, 
-            ["-activeWindow", "-interactive", "C:\\Windows\\System32\\net.exe", "user", username, new_password], 
-            guest_user=current_user, 
-            guest_pass=current_pass
+            current_user, 
+            current_pass,
+            "C:\\Windows\\System32\\net.exe", 
+            ["user", username, new_password],
+            interactive=False
         )
+
+    def configure_static_ip(self, vmx_path: str, ip: str, subnet: str, gateway: str, dns: list, current_user: str, current_pass: str):
+        """
+        Configures a static IP address in the guest OS using PowerShell.
+        """
+        dns_str = ','.join([f'"{d}"' for d in dns])
+        # PowerShell script to set Static IP
+        # Finds the adapter with a gateway (likely the active one) or just the first connected one
+        script = f"""
+$ErrorActionPreference = 'Stop'
+try {{
+    # Get adapter that is Up and likely the main one
+    $adapter = Get-NetAdapter | Where-Object {{ $_.Status -eq 'Up' }} | Select-Object -First 1
+    if (-not $adapter) {{ throw "No active network adapter found" }}
+
+    # Remove existing IPs (to avoid conflicts if re-running)
+    # Remove-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -Confirm:$false -ErrorAction SilentlyContinue
+    
+    # Set Static IP
+    # If IP already exists, this might fail, so we try to set it, or New it.
+    # A safer way is using New-NetIPAddress and catching if it exists, or just Set-NetIPAddress
+    
+    # We will use New-NetIPAddress -Force to overwrite
+    New-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -IPAddress "{ip}" -PrefixLength 24 -DefaultGateway "{gateway}" -PolicyStore ActiveStore -Confirm:$false -Force
+    
+    # Set DNS
+    Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses ({dns_str}) -Confirm:$false
+    
+    Write-Output "Success: IP Set to {ip}"
+}} catch {{
+    Write-Error $_.Exception.Message
+}}
+"""
+        return self.run_script_in_guest(vmx_path, current_user, current_pass, script)
+
+
+    def copy_file_to_guest(self, vmx_path: str, host_path: str, guest_path: str, guest_user: str, guest_pass: str):
+        """
+        Copies a file from the host to the guest.
+        """
+        return self._run_command(
+            "copyFileFromHostToGuest",
+            vmx_path,
+            [host_path, guest_path],
+            guest_user=guest_user,
+            guest_pass=guest_pass
+        )
+
+    def run_program_in_guest(self, vmx_path: str, username: str, password: str, program_path: str, program_args: str, interactive: bool = True):
+        """
+        Runs a program in the guest OS.
+        interactive: If True, requires a logged-in user and runs in their session. If False, runs in session 0 (background).
+        """
+        # vmrun -gu <user> -gp <pass> runProgramInGuest <vmx> [-noWait] [-activeWindow] [-interactive] <program> [args]
+        
+        final_args = []
+        if interactive:
+            final_args.append("-activeWindow")
+            final_args.append("-interactive")
+        
+        final_args.append(program_path)
+        
+        if program_args:
+            if isinstance(program_args, list):
+                final_args.extend(program_args)
+            else:
+                final_args.append(program_args)
+
+        return self._run_command(
+            "runProgramInGuest",
+            vmx_path,
+            final_args,
+            guest_user=username,
+            guest_pass=password
+        )
+
+
 
 vm_service = VMService()

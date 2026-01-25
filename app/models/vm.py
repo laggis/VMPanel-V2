@@ -22,3 +22,8 @@ class VM(SQLModel, table=True):
     vnc_port: Optional[int] = Field(default=None)
     vnc_password: Optional[str] = Field(default=None, max_length=8)
     vnc_enabled: bool = Field(default=False)
+
+    # Task Tracking
+    task_state: Optional[str] = Field(default=None) # e.g. "reinstalling", "creating_snapshot"
+    task_progress: int = Field(default=0) # 0-100
+    task_message: Optional[str] = Field(default=None) # e.g. "Stopping VM..."

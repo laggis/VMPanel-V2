@@ -1,10 +1,15 @@
 import os
 import shutil
 import psutil
+import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 from typing import List
+from pydantic import BaseModel
+from fastapi.concurrency import run_in_threadpool
 from app.core.database import engine
+from app.core.config import settings
+from app.services.vm_service import vm_service
 from app.models.user import User, Role
 from app.models.vm import VM
 from app.models.audit import AuditLog
@@ -91,7 +96,13 @@ async def create_user(user: UserCreate, session: Session = Depends(get_session))
         raise HTTPException(status_code=400, detail="Username already registered")
     
     hashed_pwd = get_password_hash(user.password)
-    new_user = User(username=user.username, hashed_password=hashed_pwd, role=user.role, is_active=user.is_active)
+    new_user = User(
+        username=user.username, 
+        hashed_password=hashed_pwd, 
+        role=user.role, 
+        is_active=user.is_active,
+        discord_webhook_url=user.discord_webhook_url
+    )
     session.add(new_user)
     session.commit()
     session.refresh(new_user)
@@ -141,6 +152,21 @@ async def delete_user(user_id: int, session: Session = Depends(get_session)):
     session.delete(user)
     session.commit()
     return None
+
+@router.get("/vms/{vm_id}/guest_ip")
+async def get_vm_guest_ip_admin(
+    vm_id: int,
+    session: Session = Depends(get_session)
+):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+        
+    try:
+        ip = await run_in_threadpool(vm_service.get_guest_ip, vm.vmx_path, vm.guest_username, vm.guest_password)
+        return {"ip": ip}
+    except Exception as e:
+        return {"ip": ""}
 
 # VMs
 @router.post("/vms", response_model=VMRead)
@@ -194,3 +220,96 @@ async def delete_vm(vm_id: int, session: Session = Depends(get_session)):
     session.delete(vm)
     session.commit()
     return None
+
+
+class VMProvision(BaseModel):
+    name: str
+    owner_id: int
+    clone_type: str = "full" # 'full' or 'linked'
+    cpu_cores: int = 2
+    ram_mb: int = 4096
+
+@router.post("/vms/provision", response_model=VMRead)
+async def provision_vm(
+    provision: VMProvision, 
+    current_user: User = Depends(get_current_admin_user),
+    session: Session = Depends(get_session)
+):
+    # 1. Check Template
+    if not os.path.exists(settings.TEMPLATE_VM_PATH):
+        raise HTTPException(status_code=500, detail=f"Template VM not found at {settings.TEMPLATE_VM_PATH}")
+    
+    # 2. Check Owner
+    owner = session.get(User, provision.owner_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner not found")
+
+    # 3. Prepare Paths
+    # Sanitize name for folder
+    safe_name = "".join(c for c in provision.name if c.isalnum() or c in (' ', '-', '_')).strip()
+    if not safe_name:
+        safe_name = "VM-New"
+        
+    dest_dir = os.path.join(settings.VM_STORAGE_PATH, safe_name)
+    dest_vmx = os.path.join(dest_dir, f"{safe_name}.vmx")
+    
+    if os.path.exists(dest_vmx):
+        raise HTTPException(status_code=400, detail="VM with this name/path already exists")
+        
+    # 4. Clone (Async/Threadpool)
+    try:
+        # Create storage dir if not exists
+        os.makedirs(settings.VM_STORAGE_PATH, exist_ok=True)
+        
+        await run_in_threadpool(
+            vm_service.clone_vm, 
+            settings.TEMPLATE_VM_PATH, 
+            dest_vmx, 
+            safe_name, 
+            provision.clone_type,
+            settings.TEMPLATE_SNAPSHOT_NAME
+        )
+
+        # 4.5 Update Specs (CPU/RAM)
+        await run_in_threadpool(
+            vm_service.update_specs,
+            dest_vmx,
+            provision.cpu_cores,
+            provision.ram_mb
+        )
+        
+        # Create Base Snapshot for future reinstalls
+        await run_in_threadpool(
+            vm_service.create_snapshot,
+            dest_vmx,
+            settings.TEMPLATE_SNAPSHOT_NAME
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloning failed: {e}")
+        
+    # 5. Register in DB
+    new_vm = VM(
+        name=provision.name,
+        vmx_path=dest_vmx,
+        owner_id=provision.owner_id,
+        # status="stopped" (default in model?)
+    )
+    # Ensure status is set if model doesn't default
+    # new_vm.status = "stopped" 
+    
+    session.add(new_vm)
+    session.commit()
+    session.refresh(new_vm)
+    
+    # 6. Log
+    log = AuditLog(
+        user_id=current_user.id,
+        action="provision",
+        vm_id=new_vm.id,
+        details=f"Provisioned for user {owner.username} from template ({provision.clone_type})",
+        timestamp=datetime.datetime.utcnow()
+    )
+    session.add(log)
+    session.commit()
+    
+    return new_vm

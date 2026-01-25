@@ -93,6 +93,11 @@
         <i class="fas fa-history"></i> Audit Logs
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="network-tab" data-bs-toggle="tab" data-bs-target="#network" type="button" role="tab">
+        <i class="fas fa-network-wired"></i> Network
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content" id="adminTabsContent">
@@ -102,10 +107,10 @@
         <div class="card-header">Create New User</div>
         <div class="card-body">
             <form id="createUserForm" class="row g-3">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <input type="text" id="newUsername" placeholder="Username" class="form-control" required>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <input type="password" id="newPassword" placeholder="Password" class="form-control" required>
                 </div>
                 <div class="col-md-2">
@@ -114,8 +119,11 @@
                         <option value="admin">Admin</option>
                     </select>
                 </div>
-                <div class="col-md-2">
-                    <button type="submit" class="btn btn-primary w-100">Create</button>
+                <div class="col-md-4">
+                    <input type="text" id="newWebhook" placeholder="Discord Webhook URL (Optional)" class="form-control">
+                </div>
+                <div class="col-md-12">
+                    <button type="submit" class="btn btn-primary w-100">Create User</button>
                 </div>
             </form>
         </div>
@@ -146,6 +154,10 @@
                         <option value="user">User</option>
                         <option value="admin">Admin</option>
                     </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Discord Webhook URL</label>
+                    <input type="text" id="editWebhook" class="form-control" placeholder="https://discord.com/api/webhooks/...">
                 </div>
                 <div class="d-grid">
                     <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -179,6 +191,9 @@
     <!-- Toolbar -->
     <div class="d-flex justify-content-between mb-3">
         <div>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#provisionVMModal">
+                <i class="fas fa-box-open"></i> Provision New VPS
+            </button>
             <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addVMModal">
                 <i class="fas fa-plus"></i> Register New VPS
             </button>
@@ -236,6 +251,54 @@
       </div>
     </div>
 
+    <!-- Modal for Provisioning VM -->
+    <div class="modal fade" id="provisionVMModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Provision New VPS (From Template)</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="provisionVMForm">
+                <div class="mb-3">
+                    <label class="form-label">VM Name</label>
+                    <input type="text" id="provVmName" placeholder="Customer-VPS-01" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Assign Owner</label>
+                    <select id="provVmOwner" class="form-select" required>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Clone Type</label>
+                    <select id="provCloneType" class="form-select">
+                        <option value="linked">Linked Clone (Fast, Saves Space)</option>
+                        <option value="full">Full Clone (Independent, Slower)</option>
+                    </select>
+                    <small class="text-muted">Linked requires the Template to stay online. Full copies everything.</small>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">CPU Cores</label>
+                        <input type="number" id="provCpuCores" class="form-control" value="2" min="1" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">RAM (MB)</label>
+                        <input type="number" id="provRamMb" class="form-control" value="4096" min="1024" step="1024" required>
+                    </div>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> New VM will be created in <code>C:\Virtual Machines\Customers</code>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Provision VM</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal for Editing VM -->
     <div class="modal fade" id="editVMModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog">
@@ -266,8 +329,47 @@
                     <label class="form-label">Expiration Date</label>
                     <input type="date" id="editVMExpiration" class="form-control">
                 </div>
-                <div class="d-grid">
+                <div class="d-grid gap-2">
                     <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <button type="button" class="btn btn-warning" onclick="updateServiceAccount()">
+                        <i class="fas fa-tools"></i> Update Service Account (Fix Registry)
+                    </button>
+                </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Network Config Modal -->
+    <div class="modal fade" id="netConfigModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Network Configuration</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="netConfigForm">
+                <input type="hidden" id="netConfigVmId">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i> VM must be RUNNING to configure network.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Static IP Address</label>
+                    <input type="text" id="netStaticIP" class="form-control" placeholder="192.168.119.x" required>
+                    <small class="text-muted">Ensure this IP matches your Port Forwarding rules.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Gateway</label>
+                    <input type="text" id="netGateway" class="form-control" placeholder="192.168.119.2" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">DNS Servers (Comma separated)</label>
+                    <input type="text" id="netDNS" class="form-control" value="8.8.8.8, 8.8.4.4">
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Apply Static IP</button>
                 </div>
             </form>
           </div>
@@ -310,6 +412,85 @@
                 <!-- Populated by JS -->
             </tbody>
         </table>
+    </div>
+  </div>
+
+  <!-- Network Tab -->
+  <div class="tab-pane fade" id="network" role="tabpanel">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card border-info">
+                <div class="card-header">Add Port Forwarding Rule</div>
+                <div class="card-body">
+                    <form id="addNetworkRuleForm" class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">VM (Optional)</label>
+                            <select id="ruleVmId" class="form-select">
+                                <option value="">-- Select VM --</option>
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Protocol</label>
+                            <select id="ruleProtocol" class="form-select">
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Host Port</label>
+                            <input type="number" id="ruleHostPort" class="form-control" placeholder="8080" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Guest IP</label>
+                            <input type="text" id="ruleGuestIP" class="form-control" placeholder="192.168.119.128" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Guest Port</label>
+                            <input type="number" id="ruleGuestPort" class="form-control" placeholder="80" required>
+                        </div>
+                        <div class="col-md-12">
+                            <button type="submit" class="btn btn-primary w-100">Add Rule</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <h5>TCP Rules</h5>
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            <th>Host Port</th>
+                            <th>Target</th>
+                            <th>VM Name</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tcpRulesBody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <h5>UDP Rules</h5>
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            <th>Host Port</th>
+                            <th>Target</th>
+                            <th>VM Name</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="udpRulesBody"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
   </div>
 </div>
@@ -360,6 +541,7 @@
         document.getElementById('editUserId').value = user.id;
         document.getElementById('editUsername').value = user.username;
         document.getElementById('editRole').value = user.role;
+        document.getElementById('editWebhook').value = user.discord_webhook_url || '';
         document.getElementById('editPassword').value = ''; // Clear password field
 
         const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
@@ -371,7 +553,8 @@
         const userId = document.getElementById('editUserId').value;
         const payload = {
             username: document.getElementById('editUsername').value,
-            role: document.getElementById('editRole').value
+            role: document.getElementById('editRole').value,
+            discord_webhook_url: document.getElementById('editWebhook').value || null
         };
         const password = document.getElementById('editPassword').value;
         if (password) {
@@ -392,6 +575,7 @@
     function updateOwnerDropdown() {
         const select = document.getElementById('vmOwner');
         const editSelect = document.getElementById('editVMOwner');
+        const provSelect = document.getElementById('provVmOwner');
         const currentVal = select.value;
         const currentEditVal = editSelect.value;
         
@@ -400,9 +584,19 @@
             
         select.innerHTML = options;
         editSelect.innerHTML = options;
+        if(provSelect) provSelect.innerHTML = options;
         
         if (currentVal) select.value = currentVal;
         if (currentEditVal) editSelect.value = currentEditVal;
+    }
+
+    function updateNetworkVmDropdown() {
+        const select = document.getElementById('ruleVmId');
+        if (!select) return;
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">-- Select VM --</option>' + 
+            currentVMs.map(v => `<option value="${v.id}">${v.name} (ID: ${v.id})</option>`).join('');
+        if (currentVal) select.value = currentVal;
     }
 
     let currentVMs = [];
@@ -411,6 +605,7 @@
         try {
             const res = await api.get('/admin/vms');
             currentVMs = res.data;
+            updateNetworkVmDropdown();
             const tbody = document.getElementById('vmTableBody');
             tbody.innerHTML = res.data.map(v => {
                 const owner = users.find(u => u.id === v.owner_id);
@@ -421,6 +616,7 @@
                     <td><small class="text-muted text-truncate d-inline-block" style="max-width: 250px;" title="${v.vmx_path}">${v.vmx_path}</small></td>
                     <td>${owner ? `<span class="badge bg-info">${owner.username}</span>` : '<span class="badge bg-secondary">Unassigned</span>'}</td>
                     <td>
+                        <button class="btn btn-sm btn-outline-info" title="Network Config" onclick="openNetConfig(${v.id})"><i class="fas fa-network-wired"></i></button>
                         <button class="btn btn-sm btn-outline-primary" title="Edit" onclick="openEditVMModal(${v.id})"><i class="fas fa-edit"></i></button>
                         <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="deleteVM(${v.id})"><i class="fas fa-trash"></i></button>
                     </td>
@@ -498,7 +694,8 @@
     async function scanVMs() {
         const btn = document.querySelector('button[onclick="scanVMs()"]');
         const originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scanning...';
+        
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         btn.disabled = true;
 
         try {
@@ -508,13 +705,9 @@
             datalist.innerHTML = paths.map(p => `<option value="${p}">`).join('');
             
             if (paths.length > 0) {
-                // Focus the input to encourage checking the list
-                document.getElementById('vmPath').focus();
-                // We could alert, but simply populating the list is often enough. 
-                // Let's add a small toast or just alert for now since we don't have a toast system.
-                alert(`Found ${paths.length} VMX files! Use the dropdown to select one.`);
+                alert(`Found ${paths.length} VMX files. They are now available in the autocomplete list.`);
             } else {
-                alert('No VMX files found in standard directories.');
+                alert('No VMX files found in common directories.');
             }
         } catch(err) {
             alert('Scan failed: ' + (err.response?.data?.detail || err.message));
@@ -523,6 +716,71 @@
             btn.disabled = false;
         }
     }
+
+    // --- Network Management ---
+    async function loadNetworkRules() {
+        try {
+            const res = await api.get('/network/forwarding');
+            renderNetworkRules(res.data);
+        } catch(err) {
+            console.error("Failed to load network rules", err);
+        }
+    }
+
+    function renderNetworkRules(data) {
+        const renderRow = (rule, protocol) => `
+            <tr>
+                <td><span class="badge bg-secondary">${rule.host_port}</span></td>
+                <td>${rule.guest_ip}:${rule.guest_port}</td>
+                <td><small>${rule.vm_name || '-'}</small></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteNetworkRule('${protocol}', ${rule.host_port})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+
+        document.getElementById('tcpRulesBody').innerHTML = data.tcp.map(r => renderRow(r, 'tcp')).join('');
+        document.getElementById('udpRulesBody').innerHTML = data.udp.map(r => renderRow(r, 'udp')).join('');
+    }
+
+    document.getElementById('addNetworkRuleForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const vmId = document.getElementById('ruleVmId').value;
+        const payload = {
+            protocol: document.getElementById('ruleProtocol').value,
+            host_port: parseInt(document.getElementById('ruleHostPort').value),
+            guest_ip: document.getElementById('ruleGuestIP').value,
+            guest_port: parseInt(document.getElementById('ruleGuestPort').value),
+            vm_id: vmId ? parseInt(vmId) : null
+        };
+
+        try {
+            await api.post('/network/forwarding', payload);
+            alert('Rule added successfully! Service restarted.');
+            document.getElementById('addNetworkRuleForm').reset();
+            loadNetworkRules();
+        } catch(err) {
+            alert('Failed to add rule: ' + (err.response?.data?.detail || err.message));
+        }
+    });
+
+    async function deleteNetworkRule(protocol, hostPort) {
+        if (!confirm(`Are you sure you want to delete the forwarding rule for Host Port ${hostPort}?`)) return;
+        try {
+            await api.delete(`/network/forwarding/${protocol}/${hostPort}`);
+            alert('Rule deleted successfully!');
+            loadNetworkRules();
+        } catch(err) {
+            alert('Failed to delete rule: ' + (err.response?.data?.detail || err.message));
+        }
+    }
+
+    // Load network rules when tab is clicked
+    document.getElementById('network-tab').addEventListener('shown.bs.tab', function (event) {
+        loadNetworkRules();
+    });
 
     async function loadLogs() {
         try {
@@ -546,7 +804,8 @@
             await api.post('/admin/users', {
                 username: document.getElementById('newUsername').value,
                 password: document.getElementById('newPassword').value,
-                role: document.getElementById('newRole').value
+                role: document.getElementById('newRole').value,
+                discord_webhook_url: document.getElementById('newWebhook').value || null
             });
             loadUsers();
             e.target.reset();
@@ -635,5 +894,97 @@
     function formatSpeed(bytesPerSec) {
         return formatBytes(bytesPerSec) + '/s';
     }
+
+    document.getElementById('provisionVMForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('provVmName').value;
+        const ownerId = document.getElementById('provVmOwner').value;
+        const cloneType = document.getElementById('provCloneType').value;
+        const cpuCores = parseInt(document.getElementById('provCpuCores').value);
+        const ramMb = parseInt(document.getElementById('provRamMb').value);
+        const btn = e.target.querySelector('button[type="submit"]');
+        
+        if (!ownerId) {
+            alert("Please assign an owner.");
+            return;
+        }
+        
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Provisioning...';
+        
+        try {
+            await api.post('/admin/vms/provision', {
+                name: name,
+                owner_id: parseInt(ownerId),
+                clone_type: cloneType,
+                cpu_cores: cpuCores,
+                ram_mb: ramMb
+            });
+            const modal = bootstrap.Modal.getInstance(document.getElementById('provisionVMModal'));
+            modal.hide();
+            loadVMs();
+            alert('VM Provisioned Successfully!');
+            e.target.reset();
+        } catch(err) {
+            alert('Provisioning failed: ' + (err.response?.data?.detail || err.message));
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+
+    async function openNetConfig(id) {
+        document.getElementById('netConfigVmId').value = id;
+        
+        // Auto-fill Gateway and DNS
+        document.getElementById('netGateway').value = "192.168.119.2";
+        document.getElementById('netDNS').value = "8.8.8.8, 8.8.4.4";
+        
+        // Attempt to auto-detect current IP
+        document.getElementById('netStaticIP').placeholder = "Loading...";
+        document.getElementById('netStaticIP').value = "";
+        
+        try {
+            const res = await api.get(`/admin/vms/${id}/guest_ip`);
+            if (res.data.ip && res.data.ip !== "Unknown (Tools not ready?)") {
+                 document.getElementById('netStaticIP').value = res.data.ip;
+            } else {
+                 document.getElementById('netStaticIP').placeholder = "192.168.119.x";
+            }
+        } catch (e) {
+            console.error("Failed to fetch IP", e);
+            document.getElementById('netStaticIP').placeholder = "192.168.119.x";
+        }
+        
+        const modal = new bootstrap.Modal(document.getElementById('netConfigModal'));
+        modal.show();
+    }
+
+    document.getElementById('netConfigForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('netConfigVmId').value;
+        const ip = document.getElementById('netStaticIP').value;
+        const gateway = document.getElementById('netGateway').value;
+        const dns = document.getElementById('netDNS').value.split(',').map(s => s.trim());
+        const btn = e.target.querySelector('button[type="submit"]');
+        
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying...';
+
+        try {
+            const res = await api.post(`/vms/${id}/static_ip`, {
+                ip, gateway, dns
+            });
+            alert(res.data.message);
+            bootstrap.Modal.getInstance(document.getElementById('netConfigModal')).hide();
+        } catch (err) {
+            alert("Failed to set IP: " + (err.response?.data?.detail || err.message));
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
 </script>
 {% endblock %}

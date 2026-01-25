@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session, select
 from app.core.database import create_db_and_tables, engine
-from app.routers import auth, admin, vm
+from app.routers import auth, admin, vm, network
 from app.models.user import User, Role
 from app.models.vm import VM
 from app.core.security import get_password_hash
@@ -27,35 +27,82 @@ async def check_expiring_vms():
                     days_left = (vm.expiration_date - now).days
                     
                     # Logic to determine if we should notify
-                    # This is a simple implementation that checks periodically
-                    # In a production system, you'd want to track "last_notification_sent" to avoid dupes
-                    # For now, we'll assume this runs once a day or we accept some dupes if restarted
+                    notification_data = None
                     
-                    # We can use a simplified logic: 
-                    # If we run this loop every 24h, it's fine.
-                    # But if we restart, it runs again.
-                    # Let's just check specific thresholds and maybe we can't easily avoid dupes without DB changes
-                    # But user asked for "massage that will notify me when the time its out like if a but 30 days"
-                    
-                    msg = None
                     if days_left == 30:
-                        msg = f"⚠️ VM **{vm.name}** (ID: {vm.id}) expires in 30 days!"
+                        notification_data = {
+                            "title": "📅 Service Expiration Notice",
+                            "description": f"Your service for VM **{vm.name}** is expiring in 30 days.",
+                            "color": 3447003, # Blue
+                            "fields": [
+                                {"name": "VM ID", "value": str(vm.id), "inline": True},
+                                {"name": "Expiration Date", "value": vm.expiration_date.strftime("%Y-%m-%d"), "inline": True},
+                                {"name": "Status", "value": "Active", "inline": True}
+                            ]
+                        }
                     elif days_left == 7:
-                        msg = f"⚠️ VM **{vm.name}** (ID: {vm.id}) expires in 7 days!"
+                        notification_data = {
+                            "title": "⚠️ Service Expiration Warning",
+                            "description": f"Your service for VM **{vm.name}** is expiring in 1 week.",
+                            "color": 15105570, # Orange
+                            "fields": [
+                                {"name": "VM ID", "value": str(vm.id), "inline": True},
+                                {"name": "Expiration Date", "value": vm.expiration_date.strftime("%Y-%m-%d"), "inline": True},
+                                {"name": "Time Remaining", "value": "7 Days", "inline": True}
+                            ]
+                        }
                     elif days_left == 3:
-                        msg = f"⚠️ VM **{vm.name}** (ID: {vm.id}) expires in 3 days!"
+                        notification_data = {
+                            "title": "⚠️ Service Expiration Warning",
+                            "description": f"Your service for VM **{vm.name}** is expiring in 3 days.",
+                            "color": 15105570, # Orange
+                            "fields": [
+                                {"name": "VM ID", "value": str(vm.id), "inline": True},
+                                {"name": "Expiration Date", "value": vm.expiration_date.strftime("%Y-%m-%d"), "inline": True},
+                                {"name": "Time Remaining", "value": "3 Days", "inline": True}
+                            ]
+                        }
                     elif days_left == 1:
-                        msg = f"⚠️ VM **{vm.name}** (ID: {vm.id}) expires tomorrow!"
+                        notification_data = {
+                            "title": "🚨 Urgent: Service Expiring Tomorrow",
+                            "description": f"Your service for VM **{vm.name}** expires tomorrow!",
+                            "color": 15158332, # Red
+                            "fields": [
+                                {"name": "VM ID", "value": str(vm.id), "inline": True},
+                                {"name": "Expiration Date", "value": vm.expiration_date.strftime("%Y-%m-%d"), "inline": True},
+                                {"name": "Action Required", "value": "Please renew immediately", "inline": False}
+                            ]
+                        }
                     elif days_left == 0:
-                        msg = f"🚨 VM **{vm.name}** (ID: {vm.id}) expires TODAY!"
-                    elif days_left < 0:
-                        # Maybe notify once a week for expired?
-                        # For now, let's just skip if deeply expired to avoid spam
-                        if days_left == -1:
-                             msg = f"❌ VM **{vm.name}** (ID: {vm.id}) has EXPIRED!"
+                        notification_data = {
+                            "title": "🚨 Service Expiring Today",
+                            "description": f"Your service for VM **{vm.name}** expires TODAY.",
+                            "color": 15158332, # Red
+                            "fields": [
+                                {"name": "VM ID", "value": str(vm.id), "inline": True},
+                                {"name": "Expiration Date", "value": vm.expiration_date.strftime("%Y-%m-%d"), "inline": True},
+                                {"name": "Status", "value": "Expiring Now", "inline": True}
+                            ]
+                        }
+                    elif days_left == -1:
+                        notification_data = {
+                            "title": "❌ Service Expired",
+                            "description": f"The service for VM **{vm.name}** has EXPIRED.",
+                            "color": 0, # Black
+                            "fields": [
+                                {"name": "VM ID", "value": str(vm.id), "inline": True},
+                                {"name": "Expired On", "value": vm.expiration_date.strftime("%Y-%m-%d"), "inline": True},
+                                {"name": "Status", "value": "Suspended", "inline": True}
+                            ]
+                        }
                     
-                    if msg:
-                        await notification_service.send_discord_alert(msg)
+                    if notification_data:
+                        await notification_service.send_discord_alert(
+                            title=notification_data["title"],
+                            description=notification_data["description"],
+                            color=notification_data["color"],
+                            fields=notification_data["fields"]
+                        )
                         
         except Exception as e:
             print(f"Error in expiration checker: {e}")
@@ -90,6 +137,7 @@ templates = Jinja2Templates(directory="app/templates")
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(vm.router)
+app.include_router(network.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):

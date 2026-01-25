@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from app.models.user import Role
 
@@ -14,6 +14,8 @@ class UserBase(BaseModel):
     username: str
     is_active: bool = True
     role: Role = Role.USER
+    discord_webhook_url: Optional[str] = None
+    discord_webhook_public: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -27,6 +29,8 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     is_active: Optional[bool] = None
     role: Optional[Role] = None
+    discord_webhook_url: Optional[str] = None
+    discord_webhook_public: Optional[str] = None
 
 class VMBase(BaseModel):
     name: str
@@ -47,6 +51,12 @@ class VMRead(VMBase):
     # Or maybe return it if they are the owner. For now let's return it so they can edit it.
     guest_password: Optional[str] = None
     expiration_date: Optional[datetime] = None
+    
+    # Task Tracking
+    task_state: Optional[str] = None
+    task_progress: int = 0
+    task_message: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class VMUpdate(BaseModel):
@@ -59,3 +69,8 @@ class VMUpdate(BaseModel):
     guest_username: Optional[str] = None
     guest_password: Optional[str] = None
     expiration_date: Optional[datetime] = None
+
+class VMStaticIPRequest(BaseModel):
+    ip: str
+    gateway: str
+    dns: List[str] = ["8.8.8.8", "8.8.4.4"]

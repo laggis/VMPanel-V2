@@ -52,17 +52,29 @@
             window.location.href = '/login';
         }
 
-        function showToast(message, type) {
+        function showToast(message, type, autohide = true) {
             var toastEl = document.getElementById('mainToast');
             var bodyEl = document.getElementById('mainToastBody');
             if (!toastEl || !bodyEl) return;
+            
             bodyEl.textContent = message;
+            
             var types = ['success', 'danger', 'warning', 'info'];
             types.forEach(function(t) {
                 toastEl.classList.remove('text-bg-' + t);
             });
             toastEl.classList.add('text-bg-' + (type || 'success'));
-            var toast = new bootstrap.Toast(toastEl);
+            
+            // Dispose existing instance to apply new options safely
+            var existingToast = bootstrap.Toast.getInstance(toastEl);
+            if (existingToast) {
+                existingToast.dispose();
+            }
+
+            var toast = new bootstrap.Toast(toastEl, {
+                autohide: autohide,
+                delay: 5000
+            });
             toast.show();
         }
     </script>

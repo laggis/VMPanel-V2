@@ -12,3 +12,5 @@ class User(SQLModel, table=True):
     hashed_password: str
     role: Role = Field(default=Role.USER)
     is_active: bool = Field(default=True)
+    discord_webhook_url: Optional[str] = Field(default=None, max_length=512)
+    discord_webhook_public: Optional[str] = Field(default=None, max_length=512)

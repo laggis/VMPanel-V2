@@ -10,7 +10,7 @@
             <a class="nav-link" href="/admin"><i class="fas fa-cogs"></i> Admin Panel</a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="#" onclick="openChangePasswordModal()"><i class="fas fa-user-circle"></i> Profile</a>
+            <a class="nav-link" href="#" onclick="openProfileModal()"><i class="fas fa-user-circle"></i> Profile</a>
         </li>
         <li class="nav-item">
           <span class="nav-link active" id="welcomeUser">Welcome, User</span>
@@ -78,6 +78,39 @@
 </div>
 
 <!-- RDP Settings Modal -->
+<div class="modal fade" id="guestPasswordModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Change Guest Password</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="guestPasswordForm">
+            <input type="hidden" id="guestPassVmId">
+            <div class="mb-3">
+                <label class="form-label">New Administrator Password</label>
+                <input type="text" id="guestNewPassword" class="form-control" required>
+                <div class="form-text">This will change the password for the Administrator account inside Windows.</div>
+            </div>
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="forceRestartCheck">
+                <label class="form-check-label text-danger" for="forceRestartCheck">
+                    Force Restart & Reset (Use if locked/failed)
+                </label>
+                <div class="form-text text-muted small">
+                    If checked, the VM will be HARD RESTARTED. The system will attempt to reset the password immediately after boot (requires Auto-Logon or Active Session).
+                </div>
+            </div>
+            <div class="d-grid">
+                <button type="submit" class="btn btn-warning">Change Password</button>
+            </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="rdpModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -102,28 +135,27 @@
                 <input type="text" id="rdpUser" class="form-control" value="Administrator">
             </div>
             <hr>
-            <h6>VM Login Credentials</h6>
-            <div class="form-text mb-2">Required for Live Monitor. Enter the username/password you use to log into Windows (same as RDP).</div>
+            <h6>VM Password Management</h6>
+            <div class="form-text mb-2">Use this to reset the VM password if forgotten.</div>
+            
+            <!-- Hidden guest user field to preserve layout/backend compatibility if needed, though mostly unused now -->
+            <input type="hidden" id="guestUser" value="Administrator">
+            
             <div class="mb-3">
-                <label class="form-label">VM Username</label>
-                <input type="text" id="guestUser" class="form-control" placeholder="e.g. Administrator">
-            </div>
-            <div class="mb-3">
-                <label class="form-label">VM Password</label>
+                <label class="form-label">New Password</label>
                 <div class="input-group">
-                    <input type="password" id="guestPass" class="form-control" placeholder="Enter only to update">
-                    <button type="button" class="btn btn-outline-warning" onclick="changeVmPassword()">
-                        <i class="fas fa-key"></i> Apply to VM
+                    <input type="password" id="guestPass" class="form-control" placeholder="Enter new password">
+                    <button type="button" class="btn btn-warning" onclick="changeVmPassword()">
+                        <i class="fas fa-key"></i> Reset Password
                     </button>
                 </div>
                 <div id="guestPassHelp" class="form-text text-success"></div>
                 <div class="form-text">
-                    <strong>Note:</strong> "Save Settings" only updates the Panel database. 
-                    "Apply to VM" attempts to change the Windows password inside the running VM (requires current credentials to be valid).
+                    <strong>Note:</strong> "Reset Password" attempts to change the Windows password inside the running VM immediately.
                 </div>
             </div>
             <div class="d-grid">
-                <button type="submit" class="btn btn-primary">Save Settings</button>
+                <button type="submit" class="btn btn-primary">Save RDP Settings</button>
             </div>
         </form>
       </div>
@@ -156,15 +188,37 @@
   </div>
 </div>
 
-<!-- Change Password Modal -->
-<div class="modal fade" id="changePasswordModal" tabindex="-1" aria-hidden="true">
+<!-- Profile Settings Modal -->
+<div class="modal fade" id="profileModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Change Password</h5>
+        <h5 class="modal-title"><i class="fas fa-user-cog"></i> Profile Settings</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
+        <!-- Webhook Settings -->
+        <h6 class="mb-3">Notification Settings</h6>
+        <form id="profileWebhookForm" class="mb-4">
+            <div class="mb-3">
+                <label class="form-label">Private Webhook (Security/Errors)</label>
+                <input type="text" id="profileWebhookUrl" class="form-control" placeholder="https://discord.com/api/webhooks/...">
+                <div class="form-text">For sensitive alerts (Reinstalls, Errors). If Public is not set, all alerts come here.</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Public Webhook (Status Updates)</label>
+                <input type="text" id="profileWebhookPublic" class="form-control" placeholder="https://discord.com/api/webhooks/...">
+                <div class="form-text">For general status updates (Start, Stop, IP). Optional.</div>
+            </div>
+            <div class="d-grid">
+                <button type="submit" class="btn btn-outline-primary">Save Webhooks</button>
+            </div>
+        </form>
+        
+        <hr>
+        
+        <!-- Password Change -->
+        <h6 class="mb-3">Change Password</h6>
         <form id="changePasswordForm">
             <div class="mb-3">
                 <label class="form-label">Current Password</label>
@@ -175,7 +229,7 @@
                 <input type="password" id="newPassword" class="form-control" required>
             </div>
             <div class="d-grid">
-                <button type="submit" class="btn btn-primary">Update Password</button>
+                <button type="submit" class="btn btn-danger">Update Password</button>
             </div>
         </form>
       </div>
@@ -183,10 +237,45 @@
   </div>
 </div>
 
+<!-- Reinstall Modal -->
+<div class="modal fade" id="reinstallModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content border-danger">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Reinstall Server</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="fw-bold">Are you sure you want to reinstall this server?</p>
+        <p class="text-danger">This action cannot be undone. All data on the server will be lost.</p>
+        <div class="alert alert-warning">
+            <strong><i class="fas fa-key"></i> Password Reset:</strong><br>
+            The password will be reset to: <code>Kossa123</code><br>
+            Please change it immediately after logging in.
+        </div>
+        <p>The server will be reverted to the "Base" snapshot and the RDP port will be automatically reconfigured.</p>
+        <form id="reinstallForm">
+            <input type="hidden" id="reinstallVmId">
+            <div class="mb-3">
+                <label class="form-label text-danger fw-bold">Type "REINSTALL" to confirm:</label>
+                <input type="text" class="form-control" id="reinstallConfirmInput" placeholder="REINSTALL" required pattern="REINSTALL">
+                <div class="form-text">This action is irreversible.</div>
+            </div>
+            <div class="d-grid">
+                <button type="submit" class="btn btn-danger">Reinstall Server</button>
+            </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Install Service Account Modal Removed -->
+
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js" type="module"></script>
+<!-- Using a bundled version of noVNC to avoid module loading errors -->
 <script type="module">
     import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js';
     window.RFB = RFB;
@@ -196,9 +285,20 @@
     const selectedVmId = selectedVmIdRaw ? parseInt(selectedVmIdRaw, 10) : null;
     let currentVMs = [];
     let isAdmin = false;
+    let statsInterval = null;
+    let taskInterval = null;
 
     async function loadVMs() {
         console.log("Loading VMs... Admin status:", isAdmin);
+        if (statsInterval) {
+            clearInterval(statsInterval);
+            statsInterval = null;
+        }
+        if (taskInterval) {
+            clearInterval(taskInterval);
+            taskInterval = null;
+        }
+
         try {
             const response = await api.get('/vms/');
             const allVMs = response.data;
@@ -220,121 +320,205 @@
                     <div class="col-12 mb-4">
                         <div class="card bg-dark border-0 shadow-sm">
                             <div class="card-header border-0">
-                                <ul class="nav nav-tabs card-header-tabs">
+                                <ul class="nav nav-tabs card-header-tabs" role="tablist">
                                     <li class="nav-item">
-                                        <span class="nav-link active">Service information</span>
+                                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#info-${vm.id}" type="button" role="tab">Service information</button>
                                     </li>
                                     <li class="nav-item">
-                                        <span class="nav-link disabled">Scheduled tasks</span>
+                                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tasks-${vm.id}" type="button" role="tab">Scheduled tasks</button>
                                     </li>
                                     <li class="nav-item">
-                                        <span class="nav-link disabled">Troubleshoot</span>
+                                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#troubleshoot-${vm.id}" type="button" role="tab">Troubleshoot</button>
                                     </li>
                                     <li class="nav-item">
-                                        <span class="nav-link disabled">Actions</span>
+                                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#actions-${vm.id}" type="button" role="tab">Actions</button>
                                     </li>
                                 </ul>
                             </div>
                             <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <p class="mb-1"><strong>Connection Info</strong> ${vm.rdp_ip}:${vm.rdp_port}</p>
-                                        <p class="mb-1"><strong>RDP User</strong> ${vm.rdp_username || 'Not set'}</p>
-                                        <p class="mb-1"><strong>VM ID</strong> ${vm.id}</p>
-                                        <p class="mb-3">
-                                            <strong>Status</strong>
-                                            <span class="badge bg-${statusColor} ms-2">${statusText}</span>
-                                        </p>
-                                        <p class="mb-3">
-                                            <strong>Expires</strong>
-                                            <span class="text-white ms-2 me-2">${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}</span>
-                                            ${isAdmin ? `<button onclick="openExpirationModal(${vm.id})" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size: 0.8rem;" title="Edit Expiration"><i class="fas fa-edit"></i> Edit</button>` : ''}
-                                        </p>
-                                        <div class="btn-group" role="group">
-                                            <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-success btn-sm" ${vm.status === 'running' ? 'disabled' : ''}>Start</button>
-                                            <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-danger btn-sm" ${vm.status !== 'running' ? 'disabled' : ''}>Stop</button>
-                                            <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-warning btn-sm" ${vm.status !== 'running' ? 'disabled' : ''}>Restart</button>
+                                <div class="tab-content">
+                                    <!-- Service Information -->
+                                    <div class="tab-pane fade show active" id="info-${vm.id}" role="tabpanel">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <p class="mb-1"><strong>Connection Info</strong> ${vm.rdp_ip}:${vm.rdp_port}</p>
+                                                <p class="mb-1"><strong>RDP User</strong> ${vm.rdp_username || 'Not set'}</p>
+                                                <p class="mb-1"><strong>VM ID</strong> ${vm.id}</p>
+                                                <p class="mb-3">
+                                                    <strong>Status</strong>
+                                                    <span class="badge bg-${statusColor} ms-2">${statusText}</span>
+                                                </p>
+                                                <p class="mb-3">
+                                                    <strong>Expires</strong>
+                                                    <span class="text-white ms-2 me-2">${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}</span>
+                                                    ${isAdmin ? `<button onclick="openExpirationModal(${vm.id})" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size: 0.8rem;" title="Edit Expiration"><i class="fas fa-edit"></i> Edit</button>` : ''}
+                                                </p>
+                                                <button onclick="downloadRDP(${vm.id})" class="btn btn-primary btn-sm"><i class="fas fa-download"></i> Download .RDP</button>
+                                                
+                                                <div class="mt-4">
+                                                    <h6>Power Controls</h6>
+                                                    <div class="btn-group" role="group">
+                                                        <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-success" ${vm.status === 'running' ? 'disabled' : ''}><i class="fas fa-play"></i> Start</button>
+                                                        <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-danger" ${vm.status !== 'running' ? 'disabled' : ''}><i class="fas fa-stop"></i> Stop</button>
+                                                        <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-warning" ${vm.status !== 'running' ? 'disabled' : ''}><i class="fas fa-redo"></i> Restart</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="card bg-secondary text-white border-0">
+                                                    <div class="card-body py-3">
+                                                        <h6 class="card-title mb-3"><i class="fas fa-tachometer-alt"></i> Live Resources</h6>
+                                                        <div class="mb-3">
+                                                            <div class="d-flex justify-content-between small mb-1">
+                                                                <span>Host CPU Load</span>
+                                                                <span id="cpu-text-${vm.id}">--%</span>
+                                                            </div>
+                                                            <div class="progress bg-dark" style="height: 8px;">
+                                                                <div id="cpu-bar-${vm.id}" class="progress-bar bg-info" role="progressbar" style="width: 0%"></div>
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <div class="d-flex justify-content-between small mb-1">
+                                                                <span>Host Memory (Reserved)</span>
+                                                                <span id="mem-text-${vm.id}">-- MB</span>
+                                                            </div>
+                                                            <div class="progress bg-dark" style="height: 8px;">
+                                                                <div id="mem-bar-${vm.id}" class="progress-bar bg-warning" role="progressbar" style="width: 0%"></div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="mt-2 text-end">
+                                                            <small class="text-white-50" style="font-size: 0.7rem;">Updated live</small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="col-md-6">
-                                        <p class="text-muted">Resource usage metrics are not available yet.</p>
+
+                                    <!-- Scheduled Tasks -->
+                                    <div class="tab-pane fade" id="tasks-${vm.id}" role="tabpanel">
+                                         <div class="text-center py-5 text-muted">
+                                            <i class="fas fa-calendar-times fa-3x mb-3"></i>
+                                            <p>No scheduled tasks configured.</p>
+                                         </div>
+                                    </div>
+
+                                    <!-- Troubleshoot -->
+                                    <div class="tab-pane fade" id="troubleshoot-${vm.id}" role="tabpanel">
+                                        <div class="row g-3">
+                                             <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="openScreenshotModal(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-desktop fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Live Console</div>
+                                                            <small class="text-muted">VNC Monitor</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="getVmIp(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-network-wired fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Get IP Address</div>
+                                                            <small class="text-muted">Attempt to fetch guest IP</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             ${isAdmin ? `
+                                             <!-- Service Account Management Removed (Reverted to old system) -->
+                                             ` : ''}
+                                        </div>
+                                    </div>
+
+                                    <!-- Actions -->
+                                    <div class="tab-pane fade" id="actions-${vm.id}" role="tabpanel">
+                                        <div class="row g-3 mt-2">
+                                            <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="openSnapshotModal(${vm.id})">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-camera fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Snapshots</div>
+                                                            <small class="text-muted">Manage restore points</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                            <div class="col-md-4">
+                                                 <button class="btn btn-outline-light w-100 p-3 text-start" onclick="openRDPModal(${vm.id})">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-cog fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Settings</div>
+                                                            <small class="text-muted">RDP & Credentials</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                            <div class="col-md-4">
+                                                 <button onclick="openGuestPasswordModal(${vm.id})" class="btn btn-outline-light w-100 p-3 text-start">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-key fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Password</div>
+                                                            <small class="text-muted">Change Guest Password</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                            <div class="col-md-4">
+                                                 <button onclick="openReinstallModal(${vm.id})" class="btn btn-outline-danger w-100 p-3 text-start">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-sync-alt fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Reinstall Server</div>
+                                                            <small class="text-muted">Reset to clean windows</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                            <!-- Finalize Setup Removed
+                                            <div class="col-md-4">
+                                                <button onclick="finalizeSetup(${vm.id})" class="btn btn-outline-success w-100 p-3 text-start">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-check-circle fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Finalize Setup</div>
+                                                            <small class="text-muted">Create Base Snapshot</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                            -->
+                                            -->
+                                            <!-- Stack Install Removed
+                                            <div class="col-md-4">
+                                                <button onclick="installSoftwareStack(${vm.id})" class="btn btn-outline-info w-100 p-3 text-start" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-box-open fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Install Stack</div>
+                                                            <small class="text-muted">WinRAR, HeidiSQL, XAMPP, Chrome</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                            -->
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
-
-                    <div class="col-12">
-                        <div class="row g-3">
-                            <div class="col-md-3">
-                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="connectVM(${vm.id})">
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-plug fa-2x me-3"></i>
-                                        <div>
-                                            <div>Connect</div>
-                                            <small class="text-muted">Open Remote Desktop</small>
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="openScreenshotModal(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-desktop fa-2x me-3"></i>
-                                        <div>
-                                            <div>Live Console</div>
-                                            <small class="text-muted">View VNC console</small>
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="openSnapshotModal(${vm.id})">
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-camera fa-2x me-3"></i>
-                                        <div>
-                                            <div>Snapshots</div>
-                                            <small class="text-muted">Manage restore points</small>
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="openRDPModal(${vm.id})">
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-cog fa-2x me-3"></i>
-                                        <div>
-                                            <div>Service Settings</div>
-                                            <small class="text-muted">RDP and VM credentials</small>
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="getVmIp(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-network-wired fa-2x me-3"></i>
-                                        <div>
-                                            <div>IP Address</div>
-                                            <small class="text-muted">Show guest IP</small>
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button class="btn btn-outline-light w-100 h-100 text-start" onclick="downloadRDP(${vm.id})">
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-download fa-2x me-3"></i>
-                                        <div>
-                                            <div>Download RDP</div>
-                                            <small class="text-muted">Save .rdp file</small>
-                                        </div>
-                                    </div>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
                 `;
+                
+                if (vm.status === 'running') {
+                    startStatsPolling(vm.id);
+                }
                 return;
             }
 
@@ -349,9 +533,40 @@
                     osIcon = 'fa-linux';
                 }
 
+                // Task Progress Logic
+                let taskHtml = '';
+                let controlsDisabled = false;
+                
+                if (vm.task_state) {
+                    controlsDisabled = true;
+                    taskHtml = `
+                        <div class="alert alert-info border-0 bg-opacity-10 mb-3">
+                            <div class="d-flex justify-content-between small mb-1">
+                                <span class="fw-bold" id="task-msg-${vm.id}"><i class="fas fa-spinner fa-spin me-1"></i> ${vm.task_message || 'Processing...'}</span>
+                                <span id="task-progress-text-${vm.id}">${vm.task_progress}%</span>
+                            </div>
+                            <div class="progress" style="height: 10px;">
+                                <div id="task-progress-bar-${vm.id}" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${vm.task_progress}%"></div>
+                            </div>
+                        </div>
+                    `;
+                    // Trigger polling if not already (and if we haven't set a global interval yet, though here we do per-VM)
+                    // Since loadVMs clears global interval, we set it here. 
+                    // Note: If multiple VMs have tasks, this simple logic might overwrite the interval handle. 
+                    // Ideally we should support multiple intervals or one global poll.
+                    // But usually only one task runs per user context.
+                    // We'll stick to one interval handle for simplicity as per previous code structure.
+                    startTaskPolling(vm.id);
+                }
+
                 const card = document.createElement('div');
                 card.className = 'col-md-6 col-lg-4 mb-4';
                 
+                // Modify buttons to use controlsDisabled
+                const btnDisabled = controlsDisabled ? 'disabled' : '';
+                const runDisabled = (controlsDisabled || vm.status !== 'running') ? 'disabled' : '';
+                const stopDisabled = (controlsDisabled || vm.status === 'running') ? 'disabled' : '';
+
                 card.innerHTML = `
                     <div class="card h-100 shadow-sm border-0">
                         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
@@ -361,10 +576,12 @@
                             </span>
                         </div>
                         <div class="card-body">
+                             ${taskHtml}
+                             
                              <div class="mb-3 text-center">
                                 <i class="fas fa-server fa-3x text-secondary opacity-50"></i>
                                 <p class="mt-2 text-muted small">ID: ${vm.id}</p>
-                                <p class="text-muted small mb-0">RDP: ${vm.rdp_ip}:${vm.rdp_port}</p>
+                                <p class="text-muted small mb-0" id="rdp-display-${vm.id}">RDP: ${vm.rdp_ip}:${vm.rdp_port}</p>
                                 <p class="text-muted small mb-0">User: ${vm.rdp_username || 'Not set'}</p>
                                 <p class="text-muted small">
                                    Expires: ${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}
@@ -373,26 +590,26 @@
                              </div>
                              
                              <div class="d-grid mb-3">
-                                <button onclick="connectVM(${vm.id})" class="btn btn-primary">
+                                <button onclick="connectVM(${vm.id})" class="btn btn-primary" ${btnDisabled}>
                                     <i class="fas fa-plug"></i> Connect (Remote Desktop)
                                 </button>
                              </div>
                              
                              <div class="d-grid mb-3">
-                                <button onclick="window.location.href='/server/${vm.id}'" class="btn btn-outline-light">
+                                <button onclick="window.location.href='/server/${vm.id}'" class="btn btn-outline-light" ${btnDisabled}>
                                     Open server page
                                 </button>
                              </div>
                              
                              <div class="d-grid gap-2 mb-3">
                                 <div class="btn-group" role="group">
-                                    <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-outline-success" ${vm.status === 'running' ? 'disabled' : ''}>
+                                    <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-outline-success" ${stopDisabled}>
                                         <i class="fas fa-play"></i> Start
                                     </button>
-                                    <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-outline-danger" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                    <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-outline-danger" ${runDisabled}>
                                         <i class="fas fa-stop"></i> Stop
                                     </button>
-                                    <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-outline-warning" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                    <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-outline-warning" ${runDisabled}>
                                         <i class="fas fa-redo"></i>
                                     </button>
                                 </div>
@@ -400,19 +617,22 @@
                              
                              <div class="card-footer bg-transparent border-top-0 p-0 pt-3">
                                 <div class="d-grid gap-2">
-                                    <button onclick="openScreenshotModal(${vm.id})" class="btn btn-sm btn-outline-primary" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                    <button onclick="openScreenshotModal(${vm.id})" class="btn btn-sm btn-outline-primary" ${runDisabled}>
                                         <i class="fas fa-desktop"></i> Live Console
                                     </button>
-                                    <button onclick="openSnapshotModal(${vm.id})" class="btn btn-sm btn-outline-warning">
+                                    <button onclick="openSnapshotModal(${vm.id})" class="btn btn-sm btn-outline-warning" ${btnDisabled}>
                                         <i class="fas fa-camera"></i> Snapshots
                                     </button>
-                                    <button onclick="getVmIp(${vm.id})" class="btn btn-sm btn-outline-info" ${vm.status !== 'running' ? 'disabled' : ''} title="Get Guest IP">
+                                    <button onclick="getVmIp(${vm.id})" class="btn btn-sm btn-outline-info" ${runDisabled} title="Get Guest IP">
                                         <i class="fas fa-network-wired"></i> IP
                                     </button>
-                                    <button onclick="openRDPModal(${vm.id})" class="btn btn-sm btn-secondary">
+                                    <button onclick="openGuestPasswordModal(${vm.id})" class="btn btn-sm btn-outline-warning" title="Change Guest Password" ${btnDisabled}>
+                                        <i class="fas fa-key"></i> Pass
+                                    </button>
+                                    <button onclick="openRDPModal(${vm.id})" class="btn btn-sm btn-secondary" ${btnDisabled}>
                                         <i class="fas fa-cog"></i> RDP Config
                                     </button>
-                                    <button onclick="downloadRDP(${vm.id})" class="btn btn-sm btn-info text-white">
+                                    <button onclick="downloadRDP(${vm.id})" class="btn btn-sm btn-info text-white" ${btnDisabled}>
                                         <i class="fas fa-download"></i> Download .RDP
                                     </button>
                                 </div>
@@ -481,7 +701,86 @@
         }
     }
 
+    function startStatsPolling(vmId) {
+        const fetchStats = async () => {
+            try {
+                // Check if VM is still in currentVMs list and running to avoid zombie polls
+                const vmExists = currentVMs.find(v => v.id === vmId && v.status === 'running');
+                if (!vmExists) return;
+
+                const res = await api.get(`/vms/${vmId}/stats`);
+                const stats = res.data;
+                
+                const cpuBar = document.getElementById(`cpu-bar-${vmId}`);
+                const cpuText = document.getElementById(`cpu-text-${vmId}`);
+                const memBar = document.getElementById(`mem-bar-${vmId}`);
+                const memText = document.getElementById(`mem-text-${vmId}`);
+                
+                if (cpuBar && cpuText) {
+                    // Cap at 100% for bar
+                    const cpuVal = Math.min(stats.cpu_percent, 100);
+                    cpuBar.style.width = `${cpuVal}%`;
+                    cpuText.innerText = `${stats.cpu_percent}%`;
+                    
+                    // Color coding
+                    cpuBar.className = `progress-bar ${stats.cpu_percent > 80 ? 'bg-danger' : (stats.cpu_percent > 50 ? 'bg-warning' : 'bg-info')}`;
+                }
+                
+                if (memBar && memText) {
+                    // Arbitrary max for visualization (e.g. 8GB = 8192MB)
+                    const maxMem = 8192; 
+                    const memPercent = Math.min((stats.memory_mb / maxMem) * 100, 100);
+                    memBar.style.width = `${memPercent}%`;
+                    memText.innerText = `${stats.memory_mb} MB`;
+                }
+            } catch (err) {
+                 // Suppress console error spam for aborted requests
+                 if (err.code !== "ERR_CANCELED" && err.name !== "CanceledError") {
+                    // console.error("Stats poll error:", err);
+                 }
+            }
+        };
+        
+        fetchStats();
+        statsInterval = setInterval(fetchStats, 3000);
+    }
+
+    function startTaskPolling(vmId) {
+        const fetchTask = async () => {
+            try {
+                const res = await api.get(`/vms/${vmId}`);
+                const vm = res.data;
+                
+                // If task is complete (null)
+                if (!vm.task_state) {
+                    console.log("Task completed, reloading VMs...");
+                    if (taskInterval) clearInterval(taskInterval);
+                    loadVMs(); // Reload to show enabled controls
+                    return;
+                }
+
+                // Update UI
+                const msgEl = document.getElementById(`task-msg-${vmId}`);
+                const progressTextEl = document.getElementById(`task-progress-text-${vmId}`);
+                const progressBarEl = document.getElementById(`task-progress-bar-${vmId}`);
+                
+                if (msgEl) msgEl.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i> ${vm.task_message || 'Processing...'}`;
+                if (progressTextEl) progressTextEl.innerText = `${vm.task_progress}%`;
+                if (progressBarEl) progressBarEl.style.width = `${vm.task_progress}%`;
+
+            } catch (err) {
+                console.error("Task poll error:", err);
+            }
+        };
+
+        fetchTask();
+        taskInterval = setInterval(fetchTask, 2000);
+    }
+
     async function controlVM(id, action) {
+        if (action === 'stop' || action === 'restart') {
+            if (!confirm(`Are you sure you want to ${action.toUpperCase()} the server?`)) return;
+        }
         try {
             await api.post(`/vms/${id}/${action}`);
             loadVMs();
@@ -493,14 +792,85 @@
 
     async function getVmIp(vmId) {
         try {
-            showToast('Fetching VM IP...', 'info');
+            showToast('Fetching VM IP...', 'info', false);
             const res = await api.get(`/vms/${vmId}/ip`);
             const ip = res.data?.ip || 'Unknown';
-            showToast('VM IP: ' + ip, 'success');
+            
+            // Update the UI if successful
+            if (ip && ip !== 'Unknown' && ip !== 'VM is stopped') {
+                const rdpDisplay = document.getElementById(`rdp-display-${vmId}`);
+                if (rdpDisplay) {
+                    rdpDisplay.innerHTML = `RDP: ${ip}:3389 <span class="badge bg-success">Verified</span>`;
+                }
+                showToast('VM IP Found: ' + ip, 'success');
+            } else {
+                showToast('VM IP: ' + ip, 'warning');
+            }
         } catch (err) {
             showToast('Failed to get IP: ' + (err.response?.data?.detail || err.message), 'danger');
         }
     }
+
+    /* Service Account Logic Removed */
+
+    // Guest Password Modal Logic
+    function openGuestPasswordModal(vmId) {
+        document.getElementById('guestPassVmId').value = vmId;
+        document.getElementById('guestNewPassword').value = '';
+        document.getElementById('forceRestartCheck').checked = false;
+        new bootstrap.Modal(document.getElementById('guestPasswordModal')).show();
+    }
+    
+    // Reinstall Modal Logic
+    function openReinstallModal(vmId) {
+        document.getElementById('reinstallVmId').value = vmId;
+        const input = document.getElementById('reinstallConfirmInput');
+        if (input) input.value = '';
+        new bootstrap.Modal(document.getElementById('reinstallModal')).show();
+    }
+
+    document.getElementById('reinstallForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const vmId = document.getElementById('reinstallVmId').value;
+        const confirmText = document.getElementById('reinstallConfirmInput').value;
+        
+        if (confirmText !== 'REINSTALL') {
+            alert("Please type REINSTALL to confirm.");
+            return;
+        }
+
+        try {
+            showToast('Initiating Reinstall...', 'info', false);
+            const res = await api.post(`/vms/${vmId}/reinstall`);
+            bootstrap.Modal.getInstance(document.getElementById('reinstallModal')).hide();
+            showToast(res.data.message, 'success');
+        } catch(err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    });
+
+    document.getElementById('guestPasswordForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const vmId = document.getElementById('guestPassVmId').value;
+        const password = document.getElementById('guestNewPassword').value;
+        const forceRestart = document.getElementById('forceRestartCheck').checked;
+
+        if (forceRestart && !confirm("Warning: This will force a hard restart of the VM. Unsaved work will be lost. Continue?")) {
+            return;
+        }
+
+        try {
+            showToast('Requesting password change...', 'info', false);
+            const res = await api.post(`/vms/${vmId}/change_password`, { 
+                new_password: password,
+                force_restart: forceRestart
+            });
+            bootstrap.Modal.getInstance(document.getElementById('guestPasswordModal')).hide();
+            showToast(res.data.message, 'success');
+        } catch(err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    });
 
     // Snapshot Modal Logic
     async function openSnapshotModal(vmId) {
@@ -600,7 +970,7 @@
         showToast('Deleting snapshot...', 'info');
         
         try {
-            await api.delete(`/vms/${vmId}/snapshots/${encodeURIComponent(name)}`);
+            await api.delete(`/vms/${vmId}/snapshots?name=${encodeURIComponent(name)}`);
             showToast('Snapshot delete started. It may take some time to complete.', 'info');
             loadSnapshots(vmId);
             setTimeout(() => loadSnapshots(vmId), 5000);
@@ -815,9 +1185,34 @@
         }
     }
 
-    function openChangePasswordModal() {
-        new bootstrap.Modal(document.getElementById('changePasswordModal')).show();
+    async function openProfileModal() {
+        // Fetch current profile data
+        try {
+            const res = await api.get('/auth/me');
+            const user = res.data;
+            document.getElementById('profileWebhookUrl').value = user.discord_webhook_url || '';
+            document.getElementById('profileWebhookPublic').value = user.discord_webhook_public || '';
+        } catch(err) {
+            console.error("Failed to load profile", err);
+        }
+        new bootstrap.Modal(document.getElementById('profileModal')).show();
     }
+
+    document.getElementById('profileWebhookForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const webhookUrl = document.getElementById('profileWebhookUrl').value;
+        const webhookPublic = document.getElementById('profileWebhookPublic').value;
+        
+        try {
+            await api.patch('/auth/me', { 
+                discord_webhook_url: webhookUrl || null,
+                discord_webhook_public: webhookPublic || null
+            });
+            showToast('Webhook settings saved!', 'success');
+        } catch(err) {
+            showToast('Failed to save settings: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    });
 
     document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -826,12 +1221,44 @@
         
         try {
             await api.post('/auth/me/password', { current_password: currentPassword, new_password: newPassword });
-            bootstrap.Modal.getInstance(document.getElementById('changePasswordModal')).hide();
+            bootstrap.Modal.getInstance(document.getElementById('profileModal')).hide();
             showToast('Password updated successfully', 'success');
             document.getElementById('changePasswordForm').reset();
         } catch(err) {
             showToast('Failed to update password: ' + (err.response?.data?.detail || err.message), 'danger');
         }
     });
+
+    async function finalizeSetup(vmId) {
+        if (!confirm("Are you sure you want to Finalize Setup? This will Stop the VM and create the 'Base' snapshot.")) {
+            return;
+        }
+        
+        try {
+            showToast('Finalizing setup... (This may take a moment)', 'info');
+            await api.post(`/vms/${vmId}/finalize`);
+            showToast('Finalization started. Check Discord for updates.', 'success');
+            // Reload after a delay
+            setTimeout(loadVMs, 2000);
+        } catch (err) {
+             showToast('Failed to finalize: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    async function installSoftwareStack(vmId) {
+        if (!confirm('This will install WinRAR, HeidiSQL, XAMPP, and Chrome on the VM. The VM must be running and have internet access. This may take 10-15 minutes. Continue?')) {
+            return;
+        }
+        
+        showToast('Initiating Software Stack Installation...', 'info');
+        
+        try {
+            await api.post(`/vms/${vmId}/install-stack`);
+            showToast('Installation started! You will receive a notification on Discord when complete.', 'success');
+        } catch (err) {
+            console.error(err);
+            showToast('Failed to start installation: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
 </script>
 {% endblock %}

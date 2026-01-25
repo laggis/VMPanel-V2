@@ -61,11 +61,33 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
+from typing import Optional
 from pydantic import BaseModel
 
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str
+
+class ProfileUpdate(BaseModel):
+    discord_webhook_url: Optional[str] = None
+    discord_webhook_public: Optional[str] = None
+
+@router.patch("/me")
+async def update_user_profile(
+    profile: ProfileUpdate,
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    if profile.discord_webhook_url is not None:
+        current_user.discord_webhook_url = profile.discord_webhook_url
+    
+    if profile.discord_webhook_public is not None:
+        current_user.discord_webhook_public = profile.discord_webhook_public
+        
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    return current_user
 
 @router.post("/me/password")
 async def change_password(
