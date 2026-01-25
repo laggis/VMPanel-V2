@@ -5,11 +5,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "VM Control Panel"
     # Default to a local MySQL server.
     # Format: mysql+pymysql://<user>:<password>@<host>:<port>/<db_name>
-    DATABASE_URL: str = "mysql+pymysql://vm_control:vm_control@localhost:3307/vm_control"
+    DATABASE_URL: str = "mysql+pymysql://user:password@localhost:3307/vm_control"
     
     # CRITICAL: This key MUST be static. If it changes, the deterministic service account passwords will change,
     # and the system will lose access to existing VMs.
-    SECRET_KEY: str = ""
+    SECRET_KEY: str = "CHANGE_ME_TO_A_SECURE_RANDOM_STRING"
     
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     TEMPLATE_SNAPSHOT_NAME: str = "Base-v2"
     # Directory where new Customer VMs will be created
     VM_STORAGE_PATH: str = r"C:\Virtual Machines"
+
+    # Network Defaults
+    DEFAULT_GATEWAY: str = "192.168.119.2"
+    DEFAULT_SUBNET_MASK: str = "255.255.255.0" # /24
+    DEFAULT_DNS: list = ["1.1.1.1", "1.0.0.1"]
 
     class Config:
         env_file = ".env"

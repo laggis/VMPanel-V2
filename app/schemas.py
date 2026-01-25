@@ -46,6 +46,7 @@ class VMRead(VMBase):
     rdp_ip: str = "remotedesktop.penguinhosting.host"
     rdp_port: int = 3389
     rdp_username: Optional[str] = "Administrator"
+    internal_ip: Optional[str] = None
     guest_username: Optional[str] = None
     # Do not return guest_password for security reasons usually, but user needs to see if it's set? 
     # Or maybe return it if they are the owner. For now let's return it so they can edit it.
@@ -66,6 +67,7 @@ class VMUpdate(BaseModel):
     rdp_ip: Optional[str] = None
     rdp_port: Optional[int] = None
     rdp_username: Optional[str] = None
+    internal_ip: Optional[str] = None
     guest_username: Optional[str] = None
     guest_password: Optional[str] = None
     expiration_date: Optional[datetime] = None
@@ -73,4 +75,4 @@ class VMUpdate(BaseModel):
 class VMStaticIPRequest(BaseModel):
     ip: str
     gateway: str
-    dns: List[str] = ["8.8.8.8", "8.8.4.4"]
+    dns: List[str] = ["1.1.1.1", "1.0.0.1"]

@@ -14,6 +14,9 @@ class VM(SQLModel, table=True):
     rdp_port: int = Field(default=3389)
     rdp_username: Optional[str] = Field(default="Administrator", max_length=255)
 
+    # Internal Network Settings
+    internal_ip: Optional[str] = Field(default=None, max_length=255) # e.g. 192.168.119.151
+
     # Guest Credentials (for vmrun operations)
     guest_username: Optional[str] = Field(default=None, max_length=255)
     guest_password: Optional[str] = Field(default=None, max_length=255)

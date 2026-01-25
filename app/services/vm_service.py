@@ -81,7 +81,8 @@ class VMService:
     def start_vm(self, vmx_path: str):
         # nogui starts it headless.
         # Changed to gui to see if it fixes the black screen issue.
-        return self._run_command("start", vmx_path, ["gui"])
+        # Reverted to nogui because gui blocks on dialogs and we have autoAnswer enabled now.
+        return self._run_command("start", vmx_path, ["nogui"])
 
     def stop_vm(self, vmx_path: str, hard: bool = False):
         mode = "hard" if hard else "soft"
@@ -174,7 +175,7 @@ class VMService:
         except Exception as e:
             # If it fails, it might be because tools aren't ready or installed.
             # logger.warning(f"Failed to get IP for {vmx_path}: {e}") # Reduce log noise during polling
-            return "Unknown (Tools not ready?)"
+            return None
 
     def list_snapshots(self, vmx_path: str):
         """Lists snapshots for a VM. 
@@ -311,6 +312,14 @@ class VMService:
         if memory_mb:
             new_lines.append(f'memsize = "{memory_mb}"\n')
             
+        # Add Automation Hacks to prevent blocking dialogs
+        # Check if they exist first to avoid duplicates (though we didn't filter them out above, VMX usually takes last)
+        # Better to filter them out in the loop above? 
+        # For safety, let's just append them. VMware usually rewrites the file on start anyway.
+        new_lines.append('msg.autoAnswer = "TRUE"\n')
+        new_lines.append('uuid.action = "keep"\n')
+        new_lines.append('ui.microsem.mouse.tooltip = "FALSE"\n') # Disable annoying tooltips
+            
         with open(vmx_path, 'w') as f:
             f.writelines(new_lines)
 
@@ -379,39 +388,120 @@ class VMService:
             interactive=False
         )
 
+    def get_vm_mac(self, vmx_path: str) -> str:
+        """
+        Reads the .vmx file and returns the generated MAC address.
+        """
+        if not os.path.exists(vmx_path):
+            return None
+
+        mac = None
+        try:
+            with open(vmx_path, 'r') as f:
+                for line in f:
+                    line = line.strip().lower()
+                    # Check for exact matches on keys to avoid matching "ethernet0.addresstype"
+                    if line.startswith("ethernet0.generatedaddress") or line.startswith("ethernet0.address"):
+                         # Split by first =
+                        parts = line.split("=", 1)
+                        if len(parts) > 1:
+                            key = parts[0].strip()
+                            value = parts[1].strip().strip('"')
+                            
+                            # Double check the key to ensure it's not addressType
+                            if key == "ethernet0.generatedaddress" or key == "ethernet0.address":
+                                mac = value
+                                break 
+
+        except Exception as e:
+            logger.error(f"Failed to read MAC from {vmx_path}: {e}")
+        
+        return mac
+
     def configure_static_ip(self, vmx_path: str, ip: str, subnet: str, gateway: str, dns: list, current_user: str, current_pass: str):
         """
-        Configures a static IP address in the guest OS using PowerShell.
+        Configures a static IP address.
+        Strategy: Host-Side DHCP Reservation (Robust) + Guest-Side DHCP Reset (Just in case).
         """
-        dns_str = ','.join([f'"{d}"' for d in dns])
-        # PowerShell script to set Static IP
-        # Finds the adapter with a gateway (likely the active one) or just the first connected one
-        script = f"""
-$ErrorActionPreference = 'Stop'
-try {{
-    # Get adapter that is Up and likely the main one
-    $adapter = Get-NetAdapter | Where-Object {{ $_.Status -eq 'Up' }} | Select-Object -First 1
-    if (-not $adapter) {{ throw "No active network adapter found" }}
+        # 1. Get MAC Address
+        mac = self.get_vm_mac(vmx_path)
+        if not mac:
+            raise Exception("Could not find MAC address in .vmx file")
+            
+        # 2. Add Reservation to Host DHCP
+        from app.services.dhcp_service import dhcp_service
+        vm_name = os.path.splitext(os.path.basename(vmx_path))[0]
+        dhcp_service.add_reservation(vm_name, mac, ip)
+        
+        # 3. Force Guest to Static IP (GUI Update via netsh)
+        # Only if VM is running
+        if self.is_running(vmx_path):
+            logger.info("VM is running. Executing Guest-Side 'netsh' configuration for GUI persistence...")
+            
+            # Safe DNS handling
+            dns1 = dns[0] if len(dns) > 0 else "8.8.8.8"
+            dns2 = dns[1] if len(dns) > 1 else "1.1.1.1"
+            
+            script = f"""
+            $ErrorActionPreference = 'Continue'
+            try {{
+                Start-Transcript -Path "C:\\Windows\\Temp\\static_ip_debug.log" -Append
+            }} catch {{
+                Write-Output "Could not start transcript"
+            }}
+            
+            $IP = "{ip}"
+            $Subnet = "{subnet}"
+            $Gateway = "{gateway}"
+            $DNS1 = "{dns1}"
+            $DNS2 = "{dns2}"
+            
+            Write-Output "Configuring Static IP: $IP"
+            
+            # 1. Find Adapter
+            $adapter = Get-NetAdapter | Where-Object {{ $_.Status -eq 'Up' }} | Select-Object -First 1
+            if (-not $adapter) {{ 
+                Write-Error "No active network adapter found"
+                exit 1
+            }}
+            $InterfaceName = $adapter.Name
+            
+            Write-Output "Adapter found: $InterfaceName"
+            
+            # 2. Configure via netsh (Legacy/Robust for GUI)
+            # We use netsh because it forces the GUI to update to 'Use the following IP address'
+            # which satisfies user verification.
+            
+            # Set IP/Subnet/Gateway
+            # netsh interface ip set address "Ethernet0" static 192.168.x.x ...
+            $netshCmd = 'netsh interface ip set address name="' + $InterfaceName + '" static ' + $IP + ' ' + $Subnet + ' ' + $Gateway
+            Write-Output "Executing: $netshCmd"
+            cmd /c $netshCmd
+            
+            # Set DNS 1
+            $dnsCmd1 = 'netsh interface ip set dns name="' + $InterfaceName + '" static ' + $DNS1
+            Write-Output "Executing: $dnsCmd1"
+            cmd /c $dnsCmd1
+            
+            # Set DNS 2
+            $dnsCmd2 = 'netsh interface ip add dns name="' + $InterfaceName + '" ' + $DNS2 + ' index=2'
+            Write-Output "Executing: $dnsCmd2"
+            cmd /c $dnsCmd2
+            
+            Write-Output "Configuration Complete"
+            Stop-Transcript
+            """
+            
+            try:
+                 # Run with elevated privileges (Administrator user is required)
+                 self.run_script_in_guest(vmx_path, current_user, current_pass, script)
+            except Exception as e:
+                logger.warning(f"Failed to run Static IP script in guest: {e}")
+        else:
+            logger.info("VM is not running, skipping guest Static IP script (Host reservation applied).")
 
-    # Remove existing IPs (to avoid conflicts if re-running)
-    # Remove-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -Confirm:$false -ErrorAction SilentlyContinue
-    
-    # Set Static IP
-    # If IP already exists, this might fail, so we try to set it, or New it.
-    # A safer way is using New-NetIPAddress and catching if it exists, or just Set-NetIPAddress
-    
-    # We will use New-NetIPAddress -Force to overwrite
-    New-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -IPAddress "{ip}" -PrefixLength 24 -DefaultGateway "{gateway}" -PolicyStore ActiveStore -Confirm:$false -Force
-    
-    # Set DNS
-    Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses ({dns_str}) -Confirm:$false
-    
-    Write-Output "Success: IP Set to {ip}"
-}} catch {{
-    Write-Error $_.Exception.Message
-}}
-"""
-        return self.run_script_in_guest(vmx_path, current_user, current_pass, script)
+
+
 
 
     def copy_file_to_guest(self, vmx_path: str, host_path: str, guest_path: str, guest_user: str, guest_pass: str):

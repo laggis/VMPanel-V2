@@ -4,12 +4,93 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VM Control Panel</title>
-    <!-- Bootswatch Darkly Theme -->
-    <link href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/darkly/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootswatch Theme (Dynamic) -->
+    <link id="theme-css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/darkly/bootstrap.min.css">
+    <script>
+        (function() {
+            const themeLink = document.getElementById('theme-css');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+            
+            function getStoredTheme() {
+                return localStorage.getItem('theme');
+            }
+            
+            function setStoredTheme(theme) {
+                localStorage.setItem('theme', theme);
+            }
+            
+            function updateTheme(theme) {
+                const bootswatchTheme = theme === 'dark' ? 'darkly' : 'zephyr';
+                themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/${bootswatchTheme}/bootstrap.min.css`;
+                
+                // Update CSS classes for manual overrides
+                document.body.classList.remove('light-mode', 'dark-mode');
+                document.body.classList.add(theme + '-mode');
+                
+                // Update Bootstrap 5.3 theme attribute
+                document.documentElement.setAttribute('data-bs-theme', theme);
+                
+                updateIcon(theme);
+            }
+            
+            function updateIcon(theme) {
+                const icon = document.getElementById('theme-icon');
+                if (icon) {
+                    if (theme === 'dark') {
+                        icon.classList.remove('fa-moon');
+                        icon.classList.add('fa-sun'); // Sun icon to switch to light
+                    } else {
+                        icon.classList.remove('fa-sun');
+                        icon.classList.add('fa-moon'); // Moon icon to switch to dark
+                    }
+                }
+            }
+            
+            window.toggleTheme = function() {
+                let currentTheme = getStoredTheme();
+                if (!currentTheme) {
+                    currentTheme = prefersDark.matches ? 'dark' : 'light';
+                }
+                
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                setStoredTheme(newTheme);
+                updateTheme(newTheme);
+            }
+            
+            // Initialization
+            const storedTheme = getStoredTheme();
+            if (storedTheme) {
+                // We can't set body class immediately because body might not be parsed yet.
+                // But we can set the link href.
+                const bootswatchTheme = storedTheme === 'dark' ? 'darkly' : 'zephyr';
+                themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/${bootswatchTheme}/bootstrap.min.css`;
+                
+                document.addEventListener('DOMContentLoaded', () => {
+                    updateTheme(storedTheme);
+                });
+            } else {
+                // Fallback to system
+                const initialTheme = prefersDark.matches ? 'dark' : 'light';
+                const bootswatchTheme = initialTheme === 'dark' ? 'darkly' : 'zephyr';
+                themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/${bootswatchTheme}/bootstrap.min.css`;
+                 document.addEventListener('DOMContentLoaded', () => {
+                    updateTheme(initialTheme);
+                });
+            }
+            
+            // Listener for system changes (only if no manual override)
+            prefersDark.addEventListener('change', (e) => {
+                if (!getStoredTheme()) {
+                    const newTheme = e.matches ? 'dark' : 'light';
+                    updateTheme(newTheme);
+                }
+            });
+        })();
+    </script>
     <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <!-- Custom Modern Styles -->
-    <link href="/static/css/style.css?v=2" rel="stylesheet">
+    <link href="/static/css/style.css?v=6" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>

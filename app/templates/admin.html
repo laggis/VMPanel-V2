@@ -13,6 +13,11 @@
             <a class="nav-link active" href="/admin"><i class="fas fa-cogs"></i> Admin Panel</a>
         </li>
         <li class="nav-item">
+            <a class="nav-link" href="#" onclick="toggleTheme()" title="Toggle Theme">
+                <i id="theme-icon" class="fas fa-sun"></i>
+            </a>
+        </li>
+        <li class="nav-item">
             <a class="nav-link" href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</a>
         </li>
       </ul>
@@ -326,6 +331,11 @@
                     </select>
                 </div>
                 <div class="mb-3">
+                    <label class="form-label">Internal IP (Static)</label>
+                    <input type="text" id="editVMInternalIP" class="form-control" placeholder="192.168.119.x">
+                    <small class="text-muted">Stored IP for reference. Use "Network Config" to apply changes to Guest.</small>
+                </div>
+                <div class="mb-3">
                     <label class="form-label">Expiration Date</label>
                     <input type="date" id="editVMExpiration" class="form-control">
                 </div>
@@ -352,8 +362,8 @@
           <div class="modal-body">
             <form id="netConfigForm">
                 <input type="hidden" id="netConfigVmId">
-                <div class="alert alert-warning">
-                    <i class="fas fa-exclamation-triangle"></i> VM must be RUNNING to configure network.
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> Settings are applied to Host DHCP. If VM is running, a <b>Reboot</b> may be required to take effect.
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Static IP Address</label>
@@ -664,6 +674,8 @@
         document.getElementById('editVMName').value = vm.name;
         document.getElementById('editVMPath').value = vm.vmx_path;
         document.getElementById('editVMOwner').value = vm.owner_id || "";
+        // Pre-fill with existing Internal IP, or fallback to current RDP IP if available (to help user lock it in)
+        document.getElementById('editVMInternalIP').value = vm.internal_ip || vm.rdp_ip || "";
 
         const modal = new bootstrap.Modal(document.getElementById('editVMModal'));
         modal.show();
@@ -677,7 +689,8 @@
         const payload = {
             name: document.getElementById('editVMName').value,
             vmx_path: document.getElementById('editVMPath').value,
-            owner_id: ownerId ? parseInt(ownerId) : null
+            owner_id: ownerId ? parseInt(ownerId) : null,
+            internal_ip: document.getElementById('editVMInternalIP').value || null
         };
 
         try {
@@ -939,26 +952,40 @@
         
         // Auto-fill Gateway and DNS
         document.getElementById('netGateway').value = "192.168.119.2";
-        document.getElementById('netDNS').value = "8.8.8.8, 8.8.4.4";
+        document.getElementById('netDNS').value = "1.1.1.1, 1.0.0.1";
         
-        // Attempt to auto-detect current IP
-        document.getElementById('netStaticIP').placeholder = "Loading...";
-        document.getElementById('netStaticIP').value = "";
+        const input = document.getElementById('netStaticIP');
+        input.placeholder = "Loading...";
+        input.value = "";
         
+        // Show Modal IMMEDIATELY so user doesn't think it's broken
+        const modal = new bootstrap.Modal(document.getElementById('netConfigModal'));
+        modal.show();
+
+        // Check saved Internal IP first (Persistence)
+        const vm = currentVMs.find(v => v.id === id);
+        if (vm && vm.internal_ip) {
+            input.value = vm.internal_ip;
+        }
+        
+        // Attempt to auto-detect current IP (as backup or verification)
         try {
             const res = await api.get(`/admin/vms/${id}/guest_ip`);
             if (res.data.ip && res.data.ip !== "Unknown (Tools not ready?)") {
-                 document.getElementById('netStaticIP').value = res.data.ip;
+                 // If we have no saved IP, use the live one
+                 if (!input.value) {
+                     input.value = res.data.ip;
+                 } else if (input.value !== res.data.ip) {
+                     // Optional: Could warn user that Live IP != Saved IP
+                     console.warn(`Live IP (${res.data.ip}) differs from Saved IP (${input.value})`);
+                 }
             } else {
-                 document.getElementById('netStaticIP').placeholder = "192.168.119.x";
+                 if (!input.value) input.placeholder = "192.168.119.x";
             }
         } catch (e) {
-            console.error("Failed to fetch IP", e);
-            document.getElementById('netStaticIP').placeholder = "192.168.119.x";
+            console.error("Failed to fetch IP (Normal if VM has no IP)", e);
+            if (!input.value) input.placeholder = "192.168.119.x";
         }
-        
-        const modal = new bootstrap.Modal(document.getElementById('netConfigModal'));
-        modal.show();
     }
 
     document.getElementById('netConfigForm').addEventListener('submit', async (e) => {

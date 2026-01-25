@@ -16,6 +16,11 @@
           <span class="nav-link active" id="welcomeUser">Welcome, User</span>
         </li>
         <li class="nav-item">
+            <a class="nav-link" href="#" onclick="toggleTheme()" title="Toggle Theme">
+                <i id="theme-icon" class="fas fa-sun"></i>
+            </a>
+        </li>
+        <li class="nav-item">
             <a class="nav-link" href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</a>
         </li>
       </ul>
@@ -250,7 +255,7 @@
         <p class="text-danger">This action cannot be undone. All data on the server will be lost.</p>
         <div class="alert alert-warning">
             <strong><i class="fas fa-key"></i> Password Reset:</strong><br>
-            The password will be reset to: <code>Kossa123</code><br>
+            The password will be reset to: <code class="text-dark bg-white border border-dark px-2 rounded fw-bold">Kossa123</code><br>
             Please change it immediately after logging in.
         </div>
         <p>The server will be reverted to the "Base" snapshot and the RDP port will be automatically reconfigured.</p>
@@ -318,7 +323,7 @@
 
                 container.innerHTML = `
                     <div class="col-12 mb-4">
-                        <div class="card bg-dark border-0 shadow-sm">
+                        <div class="card border-0 shadow-sm">
                             <div class="card-header border-0">
                                 <ul class="nav nav-tabs card-header-tabs" role="tablist">
                                     <li class="nav-item">
@@ -341,7 +346,7 @@
                                     <div class="tab-pane fade show active" id="info-${vm.id}" role="tabpanel">
                                         <div class="row">
                                             <div class="col-md-6">
-                                                <p class="mb-1"><strong>Connection Info</strong> ${vm.rdp_ip}:${vm.rdp_port}</p>
+                                                <p class="mb-1"><strong>Connection Info</strong> ${(vm.rdp_ip && !vm.rdp_ip.includes('Unknown')) ? vm.rdp_ip : 'remotedesktop.penguinhosting.host'}:${vm.rdp_port}</p>
                                                 <p class="mb-1"><strong>RDP User</strong> ${vm.rdp_username || 'Not set'}</p>
                                                 <p class="mb-1"><strong>VM ID</strong> ${vm.id}</p>
                                                 <p class="mb-3">
@@ -350,14 +355,14 @@
                                                 </p>
                                                 <p class="mb-3">
                                                     <strong>Expires</strong>
-                                                    <span class="text-white ms-2 me-2">${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}</span>
+                                                    <span class="text-muted ms-2 me-2">${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}</span>
                                                     ${isAdmin ? `<button onclick="openExpirationModal(${vm.id})" class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size: 0.8rem;" title="Edit Expiration"><i class="fas fa-edit"></i> Edit</button>` : ''}
                                                 </p>
-                                                <button onclick="downloadRDP(${vm.id})" class="btn btn-primary btn-sm"><i class="fas fa-download"></i> Download .RDP</button>
+                                                <button onclick="downloadRDP(${vm.id})" class="btn btn-primary w-100 py-2"><i class="fas fa-download"></i> Download .RDP</button>
                                                 
                                                 <div class="mt-4">
                                                     <h6>Power Controls</h6>
-                                                    <div class="btn-group" role="group">
+                                                    <div class="btn-group w-100" role="group">
                                                         <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-success" ${vm.status === 'running' ? 'disabled' : ''}><i class="fas fa-play"></i> Start</button>
                                                         <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-danger" ${vm.status !== 'running' ? 'disabled' : ''}><i class="fas fa-stop"></i> Stop</button>
                                                         <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-warning" ${vm.status !== 'running' ? 'disabled' : ''}><i class="fas fa-redo"></i> Restart</button>
@@ -365,7 +370,7 @@
                                                 </div>
                                             </div>
                                             <div class="col-md-6">
-                                                <div class="card bg-secondary text-white border-0">
+                                                <div class="card border-0 shadow-none h-100" style="background: var(--bg-body); box-shadow: var(--shadow-inset);">
                                                     <div class="card-body py-3">
                                                         <h6 class="card-title mb-3"><i class="fas fa-tachometer-alt"></i> Live Resources</h6>
                                                         <div class="mb-3">
@@ -569,7 +574,7 @@
 
                 card.innerHTML = `
                     <div class="card h-100 shadow-sm border-0">
-                        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                        <div class="card-header d-flex justify-content-between align-items-center">
                             <span><i class="fab ${osIcon} me-2"></i> <strong>${vm.name}</strong></span>
                             <span class="badge bg-${statusColor}">
                                 <i class="fas ${statusIcon} ${statusPulse} me-1"></i> ${statusText}
@@ -581,7 +586,7 @@
                              <div class="mb-3 text-center">
                                 <i class="fas fa-server fa-3x text-secondary opacity-50"></i>
                                 <p class="mt-2 text-muted small">ID: ${vm.id}</p>
-                                <p class="text-muted small mb-0" id="rdp-display-${vm.id}">RDP: ${vm.rdp_ip}:${vm.rdp_port}</p>
+                                <p class="text-muted small mb-0" id="rdp-display-${vm.id}">RDP: ${(vm.rdp_ip && !vm.rdp_ip.includes('Unknown')) ? vm.rdp_ip : 'remotedesktop.penguinhosting.host'}:${vm.rdp_port}</p>
                                 <p class="text-muted small mb-0">User: ${vm.rdp_username || 'Not set'}</p>
                                 <p class="text-muted small">
                                    Expires: ${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}
@@ -603,14 +608,14 @@
                              
                              <div class="d-grid gap-2 mb-3">
                                 <div class="btn-group" role="group">
-                                    <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-outline-success" ${stopDisabled}>
+                                    <button onclick="controlVM(${vm.id}, 'start')" class="btn btn-success" ${stopDisabled}>
                                         <i class="fas fa-play"></i> Start
                                     </button>
-                                    <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-outline-danger" ${runDisabled}>
+                                    <button onclick="controlVM(${vm.id}, 'stop')" class="btn btn-danger" ${runDisabled}>
                                         <i class="fas fa-stop"></i> Stop
                                     </button>
-                                    <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-outline-warning" ${runDisabled}>
-                                        <i class="fas fa-redo"></i>
+                                    <button onclick="controlVM(${vm.id}, 'restart')" class="btn btn-warning" ${runDisabled}>
+                                        <i class="fas fa-redo"></i> Restart
                                     </button>
                                 </div>
                              </div>
@@ -632,7 +637,7 @@
                                     <button onclick="openRDPModal(${vm.id})" class="btn btn-sm btn-secondary" ${btnDisabled}>
                                         <i class="fas fa-cog"></i> RDP Config
                                     </button>
-                                    <button onclick="downloadRDP(${vm.id})" class="btn btn-sm btn-info text-white" ${btnDisabled}>
+                                    <button onclick="downloadRDP(${vm.id})" class="btn btn-sm btn-primary" ${btnDisabled}>
                                         <i class="fas fa-download"></i> Download .RDP
                                     </button>
                                 </div>

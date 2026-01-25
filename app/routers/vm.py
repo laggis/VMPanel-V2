@@ -120,6 +120,24 @@ async def background_reinstall_vm(vm_id: int):
             session.add(vm)
             session.commit()
 
+            # 0. Auto-Learn IP (Last chance before wipe)
+            if not vm.internal_ip:
+                try:
+                     # Only try if running
+                     if await run_in_threadpool(vm_service.is_running, vm.vmx_path):
+                        vm.task_message = "Detecting IP..."
+                        session.add(vm)
+                        session.commit()
+                        
+                        current_ip = await run_in_threadpool(vm_service.get_guest_ip, vm.vmx_path)
+                        if current_ip and "Unknown" not in current_ip:
+                            vm.internal_ip = current_ip
+                            session.add(vm)
+                            session.commit()
+                            log_action(vm.owner_id or 0, "system", vm.id, f"Auto-detected Internal IP: {current_ip}")
+                except Exception as e:
+                    print(f"Auto-IP failed: {e}")
+
             # 1. Stop VM
             if await run_in_threadpool(vm_service.is_running, vm.vmx_path):
                 vm.task_message = "Stopping VM..."
@@ -226,6 +244,26 @@ async def background_reinstall_vm(vm_id: int):
                     settings.TEMPLATE_SNAPSHOT_NAME
                 )
             
+            # Configure Host DHCP Reservation (if Internal IP is known)
+            if getattr(vm, "internal_ip", None):
+                vm.task_message = "Configuring Network..."
+                session.add(vm)
+                session.commit()
+                
+                try:
+                    await run_in_threadpool(
+                        vm_service.configure_static_ip,
+                        vm.vmx_path,
+                        vm.internal_ip,
+                        "255.255.255.0",
+                        settings.DEFAULT_GATEWAY,
+                        settings.DEFAULT_DNS,
+                        settings.BASE_SNAPSHOT_USER,
+                        settings.BASE_SNAPSHOT_PASSWORD
+                    )
+                except Exception as e:
+                    print(f"Failed to configure Host DHCP: {e}")
+
             # 3. Start VM
             vm.task_message = "Starting VM..."
             vm.task_progress = 50
@@ -252,9 +290,32 @@ async def background_reinstall_vm(vm_id: int):
                 try:
                     ip = await run_in_threadpool(vm_service.get_guest_ip, vm.vmx_path)
                     if ip:
-                        vm.rdp_ip = ip
+                        # Update Internal IP if not set (Auto-Learn)
+                        if not getattr(vm, "internal_ip", None):
+                            vm.internal_ip = ip
+                        
                         session.add(vm)
                         session.commit()
+                        
+                        # FORCE STATIC IP GUI UPDATE (Dual-Mode)
+                        # Now that VM is running, we run the script to update the Windows GUI 
+                        # to show "Static" instead of "DHCP", satisfying user requirements.
+                        if getattr(vm, "internal_ip", None):
+                            try:
+                                print(f"Applying Guest-Side Static IP Config for {vm.internal_ip}...")
+                                await run_in_threadpool(
+                                    vm_service.configure_static_ip,
+                                    vm.vmx_path,
+                                    vm.internal_ip,
+                                    "255.255.255.0",
+                                    settings.DEFAULT_GATEWAY,
+                                    settings.DEFAULT_DNS,
+                                    settings.BASE_SNAPSHOT_USER,
+                                    settings.BASE_SNAPSHOT_PASSWORD
+                                )
+                            except Exception as e:
+                                print(f"Failed to apply Guest-Side Static IP: {e}")
+                        
                         break
                 except:
                     pass
@@ -315,14 +376,19 @@ async def background_reinstall_vm(vm_id: int):
                 # Reboot to ensure settings apply
                 Restart-Computer -Force
                 """
+
                 # FIX: Do NOT join with semicolons because it makes comments (#) comment out the next command!
                 # Keep as multi-line string for the .ps1 file.
                 script_lines = [line.strip() for line in script.splitlines() if line.strip()]
                 script = "\n".join(script_lines)
                 
                 # Method 3: File Transfer + Execution (Most Robust)
-                # Create a temporary script file on the host
-                host_temp_script = f"temp_rdp_{vm.id}.ps1"
+                # Create a persistent script file on the host
+                scripts_dir = os.path.join("app", "scripts")
+                os.makedirs(scripts_dir, exist_ok=True)
+                
+                host_temp_script = os.path.join(scripts_dir, f"rdp_config_{vm.id}.ps1")
+                
                 # Use User Temp folder to avoid System Temp permission/scanning strictness
                 guest_temp_path = f"C:\\Users\\{bootstrap_user}\\AppData\\Local\\Temp\\rdp_config.ps1"
                 
@@ -367,9 +433,9 @@ async def background_reinstall_vm(vm_id: int):
                     rdp_error = str(e)
                     # Suppress immediate warning
 
-                # Cleanup host file
-                if os.path.exists(host_temp_script):
-                    os.remove(host_temp_script)
+                # Cleanup host file - DISABLED (User requested persistence)
+                # if os.path.exists(host_temp_script):
+                #    os.remove(host_temp_script)
 
             # Prepare Rich Notification
             success_fields = [
@@ -591,10 +657,9 @@ async def set_static_ip(
         raise HTTPException(status_code=400, detail="Guest credentials (username/password) are required to set Static IP. Please update VM details first.")
         
     try:
-        # Check if running
-        if not vm_service.is_running(vm.vmx_path):
-             raise HTTPException(status_code=400, detail="VM must be running to configure network.")
-
+        # Note: We no longer require the VM to be running.
+        # If it's off, we just configure the Host DHCP, and it will pick it up on boot.
+        
         await run_in_threadpool(
             vm_service.configure_static_ip, 
             vm.vmx_path, 
@@ -605,6 +670,11 @@ async def set_static_ip(
             vm.guest_username,
             vm.guest_password
         )
+        
+        # Update DB record to reflect the new Static IP
+        vm.internal_ip = request.ip
+        session.add(vm)
+        session.commit()
         
         log_action(current_user.id, "static_ip", vm_id, f"Set IP to {request.ip}")
         await send_vm_notification(vm, "network_change", "Success", f"Static IP set to {request.ip}")
@@ -779,8 +849,12 @@ async def get_vm_ip(vm_id: int, current_user: User = Depends(get_current_active_
     try:
         ip = await run_in_threadpool(vm_service.get_guest_ip, vm.vmx_path, vm.guest_username, vm.guest_password)
         # Update DB cache if found
-        if ip and ip != "Unknown":
-            vm.rdp_ip = ip
+        if ip and "Unknown" not in ip:
+            # Auto-Learn Internal IP if missing
+            # This allows the system to "finger out" the IP automatically for existing VMs
+            if not vm.internal_ip:
+                 vm.internal_ip = ip
+
             session.add(vm)
             session.commit()
         return {"ip": ip}

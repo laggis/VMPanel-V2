@@ -5,9 +5,11 @@ A comprehensive, modern web-based control panel for managing VMware Workstation 
 ## Features
 
 ### User Dashboard
-- **Modern Tabbed Interface**: Organized view for each VM with dedicated tabs:
+- **Modern UI & Theming**:
+  - **Dark Neumorphism Theme**: A sleek, dark-mode-first design with soft shadows and vibrant gradients.
+  - **Manual Theme Toggle**: User-controlled light/dark mode persistence (saved in browser).
+- **Tabbed Interface**: Organized view for each VM with dedicated tabs:
   - **Service Information**: Status, Connection Info (IP/Port/User), Expiration Date, and Download .RDP.
-  - **Scheduled Tasks**: (Placeholder for future automation).
   - **Troubleshoot**: Tools like **Live Console** (noVNC) and **Get IP Address**.
   - **Actions**: Power controls, Snapshots, Settings, and Password management.
 - **Live Resource Metrics**: Real-time monitoring of **Host CPU Load** and **Host Memory (Reserved)** for each VM.
@@ -18,6 +20,7 @@ A comprehensive, modern web-based control panel for managing VMware Workstation 
 - **Advanced Provisioning & Reinstall**:
   - **Finalize Setup**: Automatically stops a new VM and creates a "Base" snapshot for future reverts.
   - **Reinstall**: Wipes the server by reverting to the "Base" snapshot and resetting the password to a default secure state.
+  - **IP Persistence**: Automatically re-applies the assigned Static IP immediately after a reinstall.
 - **Advanced Password Management**:
   - **Change Guest Password**: Update the Windows Administrator password via `vmrun`.
 - **Expiration Tracking**: Clear display of service expiration dates with status indicators.
@@ -27,6 +30,10 @@ A comprehensive, modern web-based control panel for managing VMware Workstation 
   - Add existing VMs by `.vmx` path.
   - **Edit VM**: Update owner, RDP port, RDP username, VMX path.
   - **RDP Security**: Only Administrators can change RDP Port and Host IP to prevent hijacking.
+  - **Network Configuration (Dual-Mode)**:
+    - **Static IP Assignment**: Assign a permanent Static IP to any VM.
+    - **Host-Side DHCP Reservation**: Automatically configures VMware's `vmnetdhcp.conf` to reserve the IP based on MAC address. This guarantees IP persistence even across reboots and reinstalls.
+    - **Guest-Side GUI Sync**: Automatically updates the Windows Network Adapter settings (via `netsh`) to visually display "Static IP" instead of "Obtain Automatically", ensuring user peace of mind.
   - **Expiration Management**: Set and edit expiration dates via the Admin list.
   - Assign VMs to specific users.
 - **User Management**:
@@ -98,11 +105,19 @@ For the **Live Monitor (noVNC)** to work correctly behind a proxy, you must enab
 
 ## Project Structure
 
-- `app/`: Main application code.
-  - `routers/`: API endpoints (Admin, Auth, VM, Network).
-  - `models/`: Database models (SQLModel).
-  - `templates/`: Jinja2 HTML templates (Dashboard, Admin, Login).
-  - `services/`: Business logic, including `VMService` (vmrun/psutil) and `NotificationService` (Discord).
-- `run.py`: Entry point script.
-- `requirements.txt`: Python dependencies.
-- `database_setup.sql`: SQL script for initial database creation.
+```
+app/
+├── core/
+│   ├── config.py       # App configuration (DB, Secrets, Paths)
+│   ├── security.py     # JWT Auth & Password Hashing
+├── routers/
+│   ├── admin.py        # Admin-only endpoints
+│   ├── auth.py         # Login/User management
+│   ├── vm.py           # VM Control endpoints
+├── services/
+│   ├── vm_service.py   # Core logic for vmrun interactions
+│   ├── dhcp_service.py # VMware DHCP Config management
+├── models/             # SQLModel Database Tables
+├── static/             # CSS, JS, Images
+├── templates/          # Jinja2 HTML Templates
+```
