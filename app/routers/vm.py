@@ -19,6 +19,7 @@ import hashlib
 import shutil
 import base64
 from starlette.concurrency import run_in_threadpool
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -768,7 +769,7 @@ async def change_password(
         
     # Use existing credentials to perform the change
     # If we don't have them, we can't change it without a reset (which we can't do easily without VNC/Manual interaction)
-    current_guest_user = vm.guest_username or "Administrator"
+    current_guest_user = vm.guest_username or vm.rdp_username or "Administrator"
     current_guest_pass = vm.guest_password
     
     if not current_guest_pass:
@@ -803,6 +804,38 @@ async def change_password(
     except Exception as e:
         await send_vm_notification(vm, "security", "Failed", f"Password change failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to change password: {str(e)}")
+
+@router.post("/{vm_id}/disable_lockout")
+async def disable_account_lockout(
+    vm_id: int,
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not vm_service.is_running(vm.vmx_path):
+        raise HTTPException(status_code=400, detail="VM must be running to change policy.")
+    admin_user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
+    admin_pass = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
+    try:
+        await run_in_threadpool(
+            vm_service.set_account_lockout_policy,
+            vm.vmx_path,
+            0,
+            0,
+            0,
+            admin_user,
+            admin_pass
+        )
+        await send_vm_notification(vm, "security", "Success", "Account lockout disabled")
+        log_action(current_user.id, "policy", vm_id, "Disabled account lockout")
+        return {"message": "Account lockout disabled for the VM."}
+    except Exception as e:
+        await send_vm_notification(vm, "security", "Failed", f"Disable lockout failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{vm_id}/snapshots")
 async def list_snapshots(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
@@ -960,6 +993,169 @@ kdcproxyname:s:
         'Content-Disposition': f'attachment; filename="vm_{vm_id}.rdp"'
     }
     return Response(content=rdp_content, media_type="application/x-rdp", headers=headers)
+
+@router.post("/{vm_id}/rdp/enable")
+async def rdp_enable(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not vm_service.is_running(vm.vmx_path):
+        raise HTTPException(status_code=400, detail="VM must be running")
+    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
+    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
+    script = """
+    $ErrorActionPreference='Continue'
+    Set-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server' -Name 'fDenyTSConnections' -Value 0
+    try { Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' } catch {}
+    cmd /c netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
+    sc.exe config TermService start= auto
+    try { Start-Service -Name TermService } catch {}
+    """
+    try:
+        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
+        log_action(current_user.id, "policy", vm_id, "Enabled RDP and firewall")
+        return {"message": "RDP enabled and firewall opened."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ScheduleRebootRequest(BaseModel):
+    time: str = "04:00"  # HH:MM 24h
+    enable: bool = True
+
+@router.post("/{vm_id}/schedule/reboot")
+async def schedule_reboot(
+    vm_id: int,
+    request: ScheduleRebootRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not vm_service.is_running(vm.vmx_path):
+        raise HTTPException(status_code=400, detail="VM must be running")
+
+    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
+    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
+    task_name = "VMPanel_AutoReboot"
+    if request.enable:
+        args = [
+            "/Create", "/SC", "DAILY", "/ST", request.time, "/TN", task_name,
+            "/TR", "shutdown /r /t 0", "/RL", "HIGHEST", "/F"
+        ]
+    else:
+        # Robust disable via PowerShell that always exits 0
+        ps = f"""
+        $ErrorActionPreference='SilentlyContinue'
+        $tn = '{task_name}'
+        schtasks.exe /Query /TN $tn | Out-Null
+        if ($LASTEXITCODE -eq 0) {{
+            schtasks.exe /Delete /TN $tn /F | Out-Null
+        }}
+        exit 0
+        """
+        try:
+            await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, ps)
+            action = "disabled"
+            log_action(current_user.id, "schedule", vm_id, f"Daily reboot {action}")
+            return {"message": f"Daily reboot {action}."}
+        except Exception:
+            # Even if the script failed, treat as best-effort success
+            return {"message": "Daily reboot disabled (best effort)."}
+    try:
+        await run_in_threadpool(
+            vm_service.run_program_in_guest,
+            vm.vmx_path,
+            user,
+            pwd,
+            "C:\\Windows\\System32\\schtasks.exe",
+            args,
+            False
+        )
+        action = "enabled" if request.enable else "disabled"
+        log_action(current_user.id, "schedule", vm_id, f"Daily reboot {action} at {request.time if request.enable else ''}")
+        return {"message": f"Daily reboot {action}."}
+    except Exception as e:
+        # Swallow benign 'not found' errors on delete
+        if not request.enable and ("cannot find the file" in str(e).lower() or "not find the file" in str(e).lower()):
+            return {"message": "Daily reboot disabled (task not present)."}
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{vm_id}/rdp/disable_nla")
+async def rdp_disable_nla(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not vm_service.is_running(vm.vmx_path):
+        raise HTTPException(status_code=400, detail="VM must be running")
+    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
+    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
+    script = """
+    $ErrorActionPreference='Continue'
+    New-Item -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -Force | Out-Null
+    Set-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -Name 'UserAuthentication' -Value 0
+    try { Restart-Service -Name TermService -Force } catch {}
+    """
+    try:
+        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
+        log_action(current_user.id, "policy", vm_id, "Disabled NLA")
+        return {"message": "RDP NLA disabled."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{vm_id}/network/dhcp")
+async def set_dhcp(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not vm_service.is_running(vm.vmx_path):
+        raise HTTPException(status_code=400, detail="VM must be running")
+    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
+    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
+    script = """
+    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
+    if ($adapter) {
+      $n = $adapter.Name
+      cmd /c ('netsh interface ip set address name="' + $n + '" dhcp')
+      cmd /c ('netsh interface ip set dns name="' + $n + '" dhcp')
+    }
+    """
+    try:
+        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
+        log_action(current_user.id, "network_change", vm_id, "Set DHCP")
+        return {"message": "NIC set to DHCP."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{vm_id}/network/enable_ping")
+async def enable_ping(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not vm_service.is_running(vm.vmx_path):
+        raise HTTPException(status_code=400, detail="VM must be running")
+    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
+    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
+    script = """
+    cmd /c netsh advfirewall firewall add rule name="Allow ICMPv4-In" dir=in action=allow enable=yes protocol=icmpv4:8,any profile=any
+    """
+    try:
+        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
+        log_action(current_user.id, "policy", vm_id, "Enabled ICMP")
+        return {"message": "Ping allowed through firewall."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.websocket("/{vm_id}/vnc")
 async def vnc_proxy(websocket: WebSocket, vm_id: int, session: Session = Depends(get_session)):

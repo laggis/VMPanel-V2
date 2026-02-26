@@ -402,9 +402,25 @@
 
                                     <!-- Scheduled Tasks -->
                                     <div class="tab-pane fade" id="tasks-${vm.id}" role="tabpanel">
-                                         <div class="text-center py-5 text-muted">
-                                            <i class="fas fa-calendar-times fa-3x mb-3"></i>
-                                            <p>No scheduled tasks configured.</p>
+                                         <div class="p-3">
+                                            <div class="card bg-dark border-0 mb-3">
+                                                <div class="card-body">
+                                                    <h6 class="mb-3"><i class="fas fa-sync-alt"></i> Daily Auto-Reboot</h6>
+                                                    <div class="row g-2 align-items-center">
+                                                        <div class="col-auto">
+                                                            <input type="time" id="rebootTime-${vm.id}" class="form-control form-control-sm" value="04:00">
+                                                        </div>
+                                                        <div class="col-auto">
+                                                            <button class="btn btn-sm btn-primary" onclick="scheduleReboot(${vm.id}, true)" ${vm.status !== 'running' ? 'disabled' : ''}>Enable</button>
+                                                        </div>
+                                                        <div class="col-auto">
+                                                            <button class="btn btn-sm btn-outline-danger" onclick="scheduleReboot(${vm.id}, false)" ${vm.status !== 'running' ? 'disabled' : ''}>Disable</button>
+                                                        </div>
+                                                    </div>
+                                                    <small class="text-muted">Creates a Windows Scheduled Task to reboot daily at the selected time.</small>
+                                                </div>
+                                            </div>
+                                            
                                          </div>
                                     </div>
 
@@ -429,6 +445,61 @@
                                                         <div>
                                                             <div>Get IP Address</div>
                                                             <small class="text-muted">Attempt to fetch guest IP</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="disableLockout(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-user-shield fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Disable Account Lockout</div>
+                                                            <small class="text-muted">Set threshold to 0 for RDP</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="enableRdp(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-door-open fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Enable RDP + Firewall</div>
+                                                            <small class="text-muted">Open port and start service</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="disableNla(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-user-lock fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Disable NLA</div>
+                                                            <small class="text-muted">Eases first‑time RDP</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="setDhcp(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-exchange-alt fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Set NIC to DHCP</div>
+                                                            <small class="text-muted">Reset IP/DNS to DHCP</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="enablePing(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-wave-square fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Allow Ping (ICMP)</div>
+                                                            <small class="text-muted">Add firewall rule</small>
                                                         </div>
                                                     </div>
                                                 </button>
@@ -816,6 +887,73 @@
         }
     }
 
+    async function disableLockout(vmId) {
+        if (!confirm('Disable account lockout in the VM? This sets threshold to 0.')) return;
+        try {
+            showToast('Applying policy...', 'info', false);
+            await api.post(`/vms/${vmId}/disable_lockout`);
+            showToast('Account lockout disabled.', 'success');
+        } catch (err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    async function enableRdp(vmId) {
+        if (!confirm('Enable Remote Desktop and open firewall rules?')) return;
+        try {
+            showToast('Enabling RDP...', 'info', false);
+            await api.post(`/vms/${vmId}/rdp/enable`);
+            showToast('RDP enabled and firewall opened.', 'success');
+        } catch (err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    async function disableNla(vmId) {
+        if (!confirm('Disable Network Level Authentication for RDP?')) return;
+        try {
+            showToast('Disabling NLA...', 'info', false);
+            await api.post(`/vms/${vmId}/rdp/disable_nla`);
+            showToast('NLA disabled.', 'success');
+        } catch (err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    async function setDhcp(vmId) {
+        if (!confirm('Set the active network adapter to DHCP for IP and DNS?')) return;
+        try {
+            showToast('Setting DHCP...', 'info', false);
+            await api.post(`/vms/${vmId}/network/dhcp`);
+            showToast('NIC set to DHCP.', 'success');
+        } catch (err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    async function enablePing(vmId) {
+        try {
+            showToast('Adding ICMP rule...', 'info', false);
+            await api.post(`/vms/${vmId}/network/enable_ping`);
+            showToast('Ping allowed through firewall.', 'success');
+        } catch (err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+    async function scheduleReboot(vmId, enable) {
+        const timeInput = document.getElementById(`rebootTime-${vmId}`);
+        const time = timeInput ? timeInput.value || "04:00" : "04:00";
+        try {
+            showToast((enable ? 'Enabling' : 'Disabling') + ' daily reboot...', 'info', false);
+            await api.post(`/vms/${vmId}/schedule/reboot`, { time, enable });
+            showToast('Schedule updated.', 'success');
+        } catch (err) {
+            showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
+
+
     /* Service Account Logic Removed */
 
     // Guest Password Modal Logic
@@ -1060,7 +1198,11 @@
         document.getElementById('rdpIp').value = vm.rdp_ip || 'remotedesktop.penguinhosting.host';
         document.getElementById('rdpPort').value = vm.rdp_port || 3389;
         document.getElementById('rdpUser').value = vm.rdp_username || 'Administrator';
-        document.getElementById('guestUser').value = vm.guest_username || '';
+        document.getElementById('guestUser').value = vm.guest_username || vm.rdp_username || 'Administrator';
+        const rdpUserInput = document.getElementById('rdpUser');
+        rdpUserInput.addEventListener('input', () => {
+            document.getElementById('guestUser').value = rdpUserInput.value;
+        }, { once: true });
         
         const passInput = document.getElementById('guestPass');
         passInput.value = '';
@@ -1076,7 +1218,8 @@
         const ip = document.getElementById('rdpIp').value;
         const port = document.getElementById('rdpPort').value;
         const user = document.getElementById('rdpUser').value;
-        const guestUser = document.getElementById('guestUser').value;
+        let guestUser = document.getElementById('guestUser').value;
+        if (!guestUser) guestUser = user;
         const guestPass = document.getElementById('guestPass').value;
         
         try {

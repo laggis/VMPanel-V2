@@ -388,6 +388,40 @@ class VMService:
             interactive=False
         )
 
+    def set_account_lockout_policy(self, vmx_path: str, threshold: int, duration_minutes: int, reset_window_minutes: int, current_user: str, current_pass: str):
+        try:
+            return self.run_program_in_guest(
+                vmx_path,
+                current_user,
+                current_pass,
+                "C:\\Windows\\System32\\net.exe",
+                ["accounts", f"/lockoutthreshold:{threshold}", f"/lockoutduration:{duration_minutes}", f"/lockoutwindow:{reset_window_minutes}"],
+                interactive=False
+            )
+        except Exception as e:
+            msg = str(e).lower()
+            if "invalid user name or password" not in msg:
+                raise
+            variants = [current_user, f".\\{current_user}"]
+            if current_user.lower() != "administrator":
+                variants.extend(["Administrator", ".\\Administrator"])
+            last_err = e
+            for user_variant in variants:
+                try:
+                    return self.run_program_in_guest(
+                        vmx_path,
+                        user_variant,
+                        current_pass,
+                        "C:\\Windows\\System32\\net.exe",
+                        ["accounts", f"/lockoutthreshold:{threshold}", f"/lockoutduration:{duration_minutes}", f"/lockoutwindow:{reset_window_minutes}"],
+                        interactive=False
+                    )
+                except Exception as e2:
+                    last_err = e2
+                    if "invalid user name or password" not in str(e2).lower():
+                        raise
+            raise last_err
+
     def get_vm_mac(self, vmx_path: str) -> str:
         """
         Reads the .vmx file and returns the generated MAC address.

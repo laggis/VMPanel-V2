@@ -13,6 +13,16 @@ A comprehensive, modern web-based control panel for managing VMware Workstation 
   - **Troubleshoot**: Tools like **Live Console** (noVNC) and **Get IP Address**.
   - **Actions**: Power controls, Snapshots, Settings, and Password management.
 - **Live Resource Metrics**: Real-time monitoring of **Host CPU Load** and **Host Memory (Reserved)** for each VM.
+- **Advanced Troubleshooting & Automation**:
+  - **Account Lockout Reset**: Instantly reset the account lockout threshold to 0 to fix RDP login issues.
+  - **RDP & Firewall Repair**: One-click enable RDP service and allow it through the Windows Firewall.
+  - **NLA Toggle**: Disable Network Level Authentication (NLA) for easier legacy RDP access.
+  - **Network Repair**: Reset the network adapter to DHCP and DNS defaults.
+  - **ICMP/Ping**: Allow ICMP (Ping) requests through the firewall for connectivity testing.
+  - **Scheduled Tasks**: Configure daily auto-reboots for VM health maintenance.
+- **Enhanced Guest Support**:
+  - **Flexible Authentication**: Supports non-Administrator guest accounts (e.g., custom usernames).
+  - **Smart Credentials**: Automatically attempts multiple username formats (`.\User`, `User`) to ensure command success.
 - **Live Monitor**: Real-time web-based VNC console (noVNC) integration. Supports keyboard interaction (including Ctrl+Alt+Del).
 - **One-Click Connect**: Download pre-configured `.rdp` files for instant Remote Desktop access.
 - **Power Controls**: Start, Stop, and Restart VMs directly from the main view.
@@ -80,10 +90,13 @@ The system supports a sophisticated notification routing system:
     ```bash
     python run.py
     ```
-    The server will start on `http://0.0.0.0:8084` (configurable in `run.py`).
+    - **Development Mode**: By default, `run.py` enables `reload=True` for hot-reloading code changes.
+    - **Production**: Edit `run.py` and set `reload=False` (and optionally `workers=4`) for better performance.
+    
+    The server will start on `http://0.0.0.0:8082` (configurable in `run.py`).
 
 2.  **Login**:
-    - Open your browser and navigate to `http://localhost:8084`.
+    - Open your browser and navigate to `http://localhost:8082`.
     - **Default Admin Credentials** (if created via `database_setup.sql` or manually):
         - Username: `admin`
         - Password: `admin`
