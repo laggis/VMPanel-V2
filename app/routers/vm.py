@@ -20,6 +20,7 @@ import shutil
 import base64
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
+import socket
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -993,6 +994,39 @@ kdcproxyname:s:
         'Content-Disposition': f'attachment; filename="vm_{vm_id}.rdp"'
     }
     return Response(content=rdp_content, media_type="application/x-rdp", headers=headers)
+
+class RdpTestResult(BaseModel):
+    ip: str
+    port: int
+    reachable: bool
+    time_ms: int | None = None
+    error: str | None = None
+
+@router.get("/{vm_id}/rdp/test", response_model=RdpTestResult)
+async def rdp_test(
+    vm_id: int,
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    ip = vm.rdp_ip
+    port = vm.rdp_port or 3389
+    if not ip or "Unknown" in str(ip):
+        raise HTTPException(status_code=400, detail="VM IP is unknown")
+    start = time.perf_counter()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(2.0)
+            s.connect((ip, int(port)))
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return RdpTestResult(ip=ip, port=int(port), reachable=True, time_ms=elapsed)
+    except Exception as e:
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return RdpTestResult(ip=ip, port=int(port), reachable=False, time_ms=elapsed, error=str(e))
 
 @router.post("/{vm_id}/rdp/enable")
 async def rdp_enable(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):

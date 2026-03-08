@@ -4,31 +4,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-    /* Base Colors - Matte Dark Grey (Default Dark) */
-    --bg-body: #292d32;
-    --bg-card: #292d32;
-    
-    /* Neumorphic Shadows */
+    --bg: #0a0c10;
+    --bg2: #0f1218;
+    --bg3: #151a22;
+    --border: #1e2530;
+    --border2: #252d3a;
+    --card-hover: #151a22;
+    --accent: #00d4ff;
+    --green: #00ff88;
+    --red: #ff3b5c;
+    --yellow: #ffb800;
+    --orange: #ff6b35;
+    --purple: #7c3aed;
+    --text: #e2e8f0;
+    --muted: #4a5568;
+    --muted2: #2d3748;
+    --bg-body: var(--bg);
+    --bg-card: var(--bg2);
     --shadow-light: rgba(255, 255, 255, 0.05);
-    --shadow-dark: rgba(0, 0, 0, 0.4);
+    --shadow-dark: rgba(0, 0, 0, 0.5);
     --shadow-outset: 8px 8px 16px var(--shadow-dark), -8px -8px 16px var(--shadow-light);
     --shadow-inset: inset 6px 6px 12px var(--shadow-dark), inset -6px -6px 12px var(--shadow-light);
-    
-    /* Text */
-    --text-primary: #eef2f6;
-    --text-secondary: #a0aab4;
-    --text-active: #ffffff;
-    --text-placeholder: rgba(255, 255, 255, 0.2);
-    --border-light: rgba(255,255,255,0.03);
-    --input-focus-ring: rgba(255, 255, 255, 0.1);
-    
-    /* Accents - Vibrant Gradient */
-    --gradient-primary: linear-gradient(135deg, #d946ef 0%, #6366f1 100%); /* Fuchsia to Indigo */
-    --gradient-success: linear-gradient(135deg, #22c55e 0%, #10b981 100%);
-    --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-    
-    /* Layout */
+    --text-primary: var(--text);
+    --text-secondary: var(--muted);
+    --text-active: var(--text);
+    --text-placeholder: rgba(226, 232, 240, 0.25);
+    --border-light: var(--border);
+    --input-focus-ring: rgba(0, 212, 255, 0.35);
+    --gradient-primary: linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%);
+    --gradient-success: linear-gradient(135deg, var(--green) 0%, #00b86d 100%);
+    --gradient-danger: linear-gradient(135deg, var(--red) 0%, #b3253a 100%);
+    --gradient-warning: linear-gradient(135deg, var(--yellow) 0%, #b37f00 100%);
     --card-radius: 20px;
     --btn-radius: 12px;
     --transition-speed: 0.3s;
@@ -100,6 +106,16 @@ body {
     background-image: none;
 }
 
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+}
+
 /* Navbar Modernization */
 .navbar {
     background: var(--bg-body) !important;
@@ -128,7 +144,7 @@ body {
 
 .nav-link:hover {
     color: var(--text-primary) !important;
-    background: var(--border-light);
+    background: var(--border2);
 }
 
 .nav-link.active {
@@ -243,7 +259,7 @@ strong {
 
 /* Inputs - Inset Style */
 .form-control, .form-select {
-    background-color: var(--bg-body);
+    background-color: var(--bg3);
     border: none;
     border-radius: var(--btn-radius);
     color: var(--text-primary);
@@ -300,7 +316,7 @@ strong {
 
 /* Progress Bars */
 .progress {
-    background-color: var(--bg-body);
+    background-color: var(--bg3);
     box-shadow: var(--shadow-inset);
     border-radius: 100px;
     height: 12px;
@@ -336,8 +352,24 @@ strong {
 .modal-content {
     background-color: var(--bg-card);
     border: none;
-    border-radius: 24px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    border-radius: var(--card-radius);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45);
+}
+
+.vnc-modal-body {
+    background-color: var(--bg-card);
+    border-radius: var(--card-radius);
+    padding: 1.5rem;
+    min-height: 600px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+#vnc-container {
+    width: 100%;
+    height: 600px;
 }
 
 .modal-header {
@@ -420,3 +452,8 @@ hr {
     border-color: rgba(255,255,255,0.1);
     opacity: 1;
 }
+
+.glow-green { box-shadow: 0 0 8px #00ff88; }
+.glow-cyan { box-shadow: 0 0 8px #00d4ff; }
+.glow-red { box-shadow: 0 0 8px #ff3b5c; }
+.glow-yellow { box-shadow: 0 0 8px #ffb800; }

@@ -31,6 +31,16 @@
 <h3><i class="fas fa-cubes"></i> Your VPS Instances</h3>
 <hr>
 
+<div class="d-flex align-items-center gap-2 mb-3">
+  <input type="text" class="form-control form-control-sm" id="vmSearchInput" placeholder="Search by name or ID">
+  <select id="vmStatusFilter" class="form-select form-select-sm w-auto">
+    <option value="">All</option>
+    <option value="running">Running</option>
+    <option value="stopped">Stopped</option>
+  </select>
+  <button class="btn btn-sm btn-outline-secondary" id="vmClearFilters">Clear</button>
+  <div class="ms-auto small text-muted" id="vmFilterCount"></div>
+</div>
 <div id="vmList" class="row"></div>
 
 <!-- Screenshot Modal (Renamed to Console) -->
@@ -38,17 +48,34 @@
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Live Console <span class="badge bg-danger">VNC</span></h5>
+        <h5 class="modal-title">Live Console <span class="badge bg-danger">VNC</span> <span id="vnc-conn-pill" class="badge bg-warning text-dark ms-2">Connecting</span></h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body text-center p-0" style="background: #000; min-height: 600px; display: flex; align-items: center; justify-content: center;">
-        <div id="vnc-container" style="width: 100%; height: 600px;">
+      <div class="modal-body vnc-modal-body text-center p-0">
+        <div id="vnc-container">
             <!-- VNC Canvas will be here -->
         </div>
         <div id="vnc-status" class="text-white" style="position: absolute;">Connecting...</div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-warning" onclick="sendCtrlAltDel()">
+        <div class="d-flex align-items-center me-auto">
+            <label for="vncQualitySelect" class="me-2 mb-0 small text-muted">Quality</label>
+            <select id="vncQualitySelect" class="form-select form-select-sm w-auto me-3">
+                <option value="high">High</option>
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low</option>
+            </select>
+            <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" id="vncFitWidthToggle" checked>
+                <label class="form-check-label small" for="vncFitWidthToggle">Fit to width</label>
+            </div>
+            <div class="form-check form-switch m-0 ms-3">
+                <input class="form-check-input" type="checkbox" id="vncOriginalToggle">
+                <label class="form-check-label small" for="vncOriginalToggle">Original size</label>
+            </div>
+            <button type="button" id="vncResetBtn" class="btn btn-outline-secondary btn-sm ms-3">Reset</button>
+        </div>
+        <button type="button" id="vncCtrlAltDelBtn" class="btn btn-warning" onclick="sendCtrlAltDel()">
             <i class="fas fa-keyboard"></i> Ctrl+Alt+Del
         </button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -95,7 +122,13 @@
             <input type="hidden" id="guestPassVmId">
             <div class="mb-3">
                 <label class="form-label">New Administrator Password</label>
-                <input type="text" id="guestNewPassword" class="form-control" required>
+                <div class="input-group">
+                    <input type="password" id="guestNewPassword" class="form-control" required>
+                    <button type="button" class="btn btn-outline-secondary" id="guestNewPassPasteBtn">Paste</button>
+                    <button type="button" class="btn btn-outline-secondary" id="guestNewPassShowBtn">Show</button>
+                    <button type="button" class="btn btn-outline-info" id="guestNewPassGenBtn">Generate</button>
+                    <button type="button" class="btn btn-outline-success" id="guestNewPassCopyBtn">Copy</button>
+                </div>
                 <div class="form-text">This will change the password for the Administrator account inside Windows.</div>
             </div>
             <div class="form-check mb-3">
@@ -150,6 +183,10 @@
                 <label class="form-label">New Password</label>
                 <div class="input-group">
                     <input type="password" id="guestPass" class="form-control" placeholder="Enter new password">
+                    <button type="button" class="btn btn-outline-secondary" id="guestPassPasteBtn">Paste</button>
+                    <button type="button" class="btn btn-outline-secondary" id="guestPassShowBtn">Show</button>
+                    <button type="button" class="btn btn-outline-info" id="guestPassGenBtn">Generate</button>
+                    <button type="button" class="btn btn-outline-success" id="guestPassCopyBtn">Copy</button>
                     <button type="button" class="btn btn-warning" onclick="changeVmPassword()">
                         <i class="fas fa-key"></i> Reset Password
                     </button>
@@ -450,6 +487,17 @@
                                                 </button>
                                              </div>
                                              <div class="col-md-4">
+                                                <button class="btn btn-outline-light w-100 p-3 text-start" onclick="testRdp(${vm.id})">
+                                                    <div class="d-flex align-items-center">
+                                                        <i class="fas fa-plug fa-2x me-3"></i>
+                                                        <div>
+                                                            <div>Test RDP Connection</div>
+                                                            <small class="text-muted">Checks ${'${'}(vm.rdp_ip || 'IP')${'}'}:${'${'}vm.rdp_port${'}'}</small>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                             </div>
+                                             <div class="col-md-4">
                                                 <button class="btn btn-outline-light w-100 p-3 text-start" onclick="disableLockout(${vm.id})" ${vm.status !== 'running' ? 'disabled' : ''}>
                                                     <div class="d-flex align-items-center">
                                                         <i class="fas fa-user-shield fa-2x me-3"></i>
@@ -557,33 +605,7 @@
                                                     </div>
                                                 </button>
                                             </div>
-                                            <!-- Finalize Setup Removed
-                                            <div class="col-md-4">
-                                                <button onclick="finalizeSetup(${vm.id})" class="btn btn-outline-success w-100 p-3 text-start">
-                                                    <div class="d-flex align-items-center">
-                                                        <i class="fas fa-check-circle fa-2x me-3"></i>
-                                                        <div>
-                                                            <div>Finalize Setup</div>
-                                                            <small class="text-muted">Create Base Snapshot</small>
-                                                        </div>
-                                                    </div>
-                                                </button>
-                                            </div>
-                                            -->
-                                            -->
-                                            <!-- Stack Install Removed
-                                            <div class="col-md-4">
-                                                <button onclick="installSoftwareStack(${vm.id})" class="btn btn-outline-info w-100 p-3 text-start" ${vm.status !== 'running' ? 'disabled' : ''}>
-                                                    <div class="d-flex align-items-center">
-                                                        <i class="fas fa-box-open fa-2x me-3"></i>
-                                                        <div>
-                                                            <div>Install Stack</div>
-                                                            <small class="text-muted">WinRAR, HeidiSQL, XAMPP, Chrome</small>
-                                                        </div>
-                                                    </div>
-                                                </button>
-                                            </div>
-                                            -->
+                                            
                                         </div>
                                     </div>
                                 </div>
@@ -598,7 +620,12 @@
                 return;
             }
 
-            currentVMs.forEach(vm => {
+            const filteredVMs = applyFilters(currentVMs);
+            if (filteredVMs.length === 0) {
+                const countEl = document.getElementById('vmFilterCount');
+                if (countEl) countEl.textContent = '0 results';
+            }
+            filteredVMs.forEach(vm => {
                 const statusColor = vm.status === 'running' ? 'success' : 'danger';
                 const statusIcon = vm.status === 'running' ? 'fa-circle' : 'fa-stop-circle';
                 const statusText = vm.status === 'running' ? 'Running' : 'Stopped';
@@ -723,6 +750,44 @@
             showToast('Failed to load VMs', 'danger');
         }
     }
+    
+    function applyFilters(vms) {
+        const qEl = document.getElementById('vmSearchInput');
+        const fEl = document.getElementById('vmStatusFilter');
+        const countEl = document.getElementById('vmFilterCount');
+        let q = qEl ? qEl.value.trim().toLowerCase() : '';
+        let f = fEl ? fEl.value : '';
+        let out = vms;
+        if (q) {
+            out = out.filter(v => 
+                String(v.id).includes(q) ||
+                (v.name && v.name.toLowerCase().includes(q))
+            );
+        }
+        if (f) {
+            out = out.filter(v => v.status === f);
+        }
+        if (countEl) countEl.textContent = `${out.length} result${out.length===1?'':'s'}`;
+        return out;
+    }
+    
+    (function initFilters(){
+        const qEl = document.getElementById('vmSearchInput');
+        const fEl = document.getElementById('vmStatusFilter');
+        const clearEl = document.getElementById('vmClearFilters');
+        let t;
+        function debouncedReload() {
+            clearTimeout(t);
+            t = setTimeout(() => loadVMs(), 200);
+        }
+        if (qEl) qEl.addEventListener('input', debouncedReload);
+        if (fEl) fEl.addEventListener('change', debouncedReload);
+        if (clearEl) clearEl.addEventListener('click', () => {
+            if (qEl) qEl.value = '';
+            if (fEl) fEl.value = '';
+            loadVMs();
+        });
+    })();
 
     function connectVM(vmId) {
         const vm = currentVMs.find(v => v.id === vmId);
@@ -778,6 +843,10 @@
     }
 
     function startStatsPolling(vmId) {
+        if (statsInterval) {
+            clearInterval(statsInterval);
+            statsInterval = null;
+        }
         const fetchStats = async () => {
             try {
                 // Check if VM is still in currentVMs list and running to avoid zombie polls
@@ -822,6 +891,10 @@
     }
 
     function startTaskPolling(vmId) {
+        if (taskInterval) {
+            clearInterval(taskInterval);
+            taskInterval = null;
+        }
         const fetchTask = async () => {
             try {
                 const res = await api.get(`/vms/${vmId}`);
@@ -829,7 +902,7 @@
                 
                 // If task is complete (null)
                 if (!vm.task_state) {
-                    console.log("Task completed, reloading VMs...");
+                // auto-refresh to re-enable controls
                     if (taskInterval) clearInterval(taskInterval);
                     loadVMs(); // Reload to show enabled controls
                     return;
@@ -897,6 +970,21 @@
             showToast('Failed: ' + (err.response?.data?.detail || err.message), 'danger');
         }
     }
+    
+    async function testRdp(vmId) {
+        try {
+            showToast('Testing RDP connectivity...', 'info', false);
+            const res = await api.get(`/vms/${vmId}/rdp/test`);
+            const d = res.data;
+            if (d.reachable) {
+                showToast(`RDP reachable at ${d.ip}:${d.port} in ${d.time_ms} ms`, 'success');
+            } else {
+                showToast(`RDP not reachable at ${d.ip}:${d.port} (${d.error || 'Unknown error'})`, 'danger');
+            }
+        } catch (err) {
+            showToast('Connectivity test failed: ' + (err.response?.data?.detail || err.message), 'danger');
+        }
+    }
 
     async function enableRdp(vmId) {
         if (!confirm('Enable Remote Desktop and open firewall rules?')) return;
@@ -962,6 +1050,83 @@
         document.getElementById('guestNewPassword').value = '';
         document.getElementById('forceRestartCheck').checked = false;
         new bootstrap.Modal(document.getElementById('guestPasswordModal')).show();
+    }
+    async function pasteInto(id) {
+        try {
+            const t = await navigator.clipboard.readText();
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = t;
+                el.focus();
+            }
+        } catch (e) {
+            showToast('Clipboard access denied', 'warning');
+        }
+    }
+    function toggleVisibility(id, btnId) {
+        const el = document.getElementById(id);
+        const btn = document.getElementById(btnId);
+        if (!el || !btn) return;
+        if (el.type === 'password') {
+            el.type = 'text';
+            btn.textContent = 'Hide';
+        } else {
+            el.type = 'password';
+            btn.textContent = 'Show';
+        }
+    }
+    (function() {
+        const gpPB = document.getElementById('guestPassPasteBtn');
+        if (gpPB) gpPB.addEventListener('click', () => pasteInto('guestPass'));
+        const gpSB = document.getElementById('guestPassShowBtn');
+        if (gpSB) gpSB.addEventListener('click', () => toggleVisibility('guestPass','guestPassShowBtn'));
+        const gnpPB = document.getElementById('guestNewPassPasteBtn');
+        if (gnpPB) gnpPB.addEventListener('click', () => pasteInto('guestNewPassword'));
+        const gnpSB = document.getElementById('guestNewPassShowBtn');
+        if (gnpSB) gnpSB.addEventListener('click', () => toggleVisibility('guestNewPassword','guestNewPassShowBtn'));
+        const gpGen = document.getElementById('guestPassGenBtn');
+        if (gpGen) gpGen.addEventListener('click', () => {
+            const p = generatePassword();
+            const el = document.getElementById('guestPass');
+            if (el) el.value = p;
+            navigator.clipboard.writeText(p).catch(()=>{});
+            showToast('Generated and copied a strong password', 'success');
+        });
+        const gpCopy = document.getElementById('guestPassCopyBtn');
+        if (gpCopy) gpCopy.addEventListener('click', () => {
+            const el = document.getElementById('guestPass');
+            if (el && el.value) {
+                navigator.clipboard.writeText(el.value).then(()=>showToast('Password copied', 'success')).catch(()=>showToast('Copy failed','danger'));
+            }
+        });
+        const gnpGen = document.getElementById('guestNewPassGenBtn');
+        if (gnpGen) gnpGen.addEventListener('click', () => {
+            const p = generatePassword();
+            const el = document.getElementById('guestNewPassword');
+            if (el) el.value = p;
+            navigator.clipboard.writeText(p).catch(()=>{});
+            showToast('Generated and copied a strong password', 'success');
+        });
+        const gnpCopy = document.getElementById('guestNewPassCopyBtn');
+        if (gnpCopy) gnpCopy.addEventListener('click', () => {
+            const el = document.getElementById('guestNewPassword');
+            if (el && el.value) {
+                navigator.clipboard.writeText(el.value).then(()=>showToast('Password copied', 'success')).catch(()=>showToast('Copy failed','danger'));
+            }
+        });
+    })();
+    
+    function generatePassword(len = 20) {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()-_=+[]{}';
+        const arr = new Uint32Array(len);
+        if (window.crypto && window.crypto.getRandomValues) {
+            window.crypto.getRandomValues(arr);
+        } else {
+            for (let i=0;i<len;i++) arr[i] = Math.floor(Math.random()*chars.length);
+        }
+        let out = '';
+        for (let i=0;i<len;i++) out += chars[arr[i] % chars.length];
+        return out;
     }
     
     // Reinstall Modal Logic
@@ -1130,6 +1295,12 @@
         const modalEl = document.getElementById('screenshotModal');
         const container = document.getElementById('vnc-container');
         const statusEl = document.getElementById('vnc-status');
+        const qualitySel = document.getElementById('vncQualitySelect');
+        const fitToggle = document.getElementById('vncFitWidthToggle');
+        const origToggle = document.getElementById('vncOriginalToggle');
+        const resetBtn = document.getElementById('vncResetBtn');
+        const cadBtn = document.getElementById('vncCtrlAltDelBtn');
+        const pill = document.getElementById('vnc-conn-pill');
         
         modalEl.dataset.vmId = vmId;
         const modal = new bootstrap.Modal(modalEl);
@@ -1151,13 +1322,101 @@
 
             rfb = new window.RFB(container, url);
 
+            // Apply initial settings
+            function applyQuality(level) {
+                if (!rfb) return;
+                if (level === 'high') {
+                    rfb.qualityLevel = 8;
+                    rfb.compressionLevel = 2;
+                } else if (level === 'low') {
+                    rfb.qualityLevel = 3;
+                    rfb.compressionLevel = 9;
+                } else {
+                    rfb.qualityLevel = 6;
+                    rfb.compressionLevel = 6;
+                }
+                localStorage.setItem('vncQuality', level);
+            }
+            function applyFit(fit) {
+                if (!rfb) return;
+                rfb.scaleViewport = !!fit;
+                rfb.resizeSession = false;
+                localStorage.setItem('vncFit', fit ? '1' : '0');
+                if (origToggle && fit) origToggle.checked = false;
+            }
+            function applyOriginal(orig) {
+                if (!rfb) return;
+                if (orig) {
+                    rfb.scaleViewport = false;
+                } else {
+                    rfb.scaleViewport = true;
+                }
+                rfb.resizeSession = false;
+                localStorage.setItem('vncOrig', orig ? '1' : '0');
+                if (fitToggle && orig) fitToggle.checked = false;
+            }
+            function setPill(state) {
+                if (!pill) return;
+                pill.classList.remove('bg-success','bg-warning','bg-danger','text-dark');
+                if (state === 'connected') {
+                    pill.textContent = 'Connected';
+                    pill.classList.add('bg-success');
+                } else if (state === 'disconnected') {
+                    pill.textContent = 'Disconnected';
+                    pill.classList.add('bg-danger');
+                } else {
+                    pill.textContent = 'Connecting';
+                    pill.classList.add('bg-warning','text-dark');
+                }
+            }
+            setPill('connecting');
+
+            // Restore persisted values
+            const savedQ = localStorage.getItem('vncQuality') || 'medium';
+            const savedFit = localStorage.getItem('vncFit') !== '0';
+            const savedOrig = localStorage.getItem('vncOrig') === '1';
+            if (qualitySel) qualitySel.value = savedQ;
+            if (fitToggle) fitToggle.checked = savedFit;
+            if (origToggle) origToggle.checked = savedOrig;
+            applyQuality(savedQ);
+            applyFit(savedFit && !savedOrig);
+            applyOriginal(savedOrig);
+
+            if (!isAdmin && cadBtn) {
+                cadBtn.style.display = 'none';
+            } else if (cadBtn) {
+                cadBtn.style.display = '';
+            }
+
+            if (qualitySel) {
+                qualitySel.addEventListener('change', (e) => applyQuality(e.target.value));
+            }
+            if (fitToggle) {
+                fitToggle.addEventListener('change', (e) => applyFit(e.target.checked));
+            }
+            if (origToggle) {
+                origToggle.addEventListener('change', (e) => applyOriginal(e.target.checked));
+            }
+            if (resetBtn) {
+                resetBtn.addEventListener('click', () => {
+                    if (qualitySel) qualitySel.value = 'medium';
+                    if (fitToggle) fitToggle.checked = true;
+                    if (origToggle) origToggle.checked = false;
+                    applyQuality('medium');
+                    applyFit(true);
+                    applyOriginal(false);
+                });
+            }
+
             rfb.addEventListener("connect",  () => {
                 statusEl.style.display = 'none';
+                setPill('connected');
             });
 
             rfb.addEventListener("disconnect", (e) => {
                 statusEl.textContent = "Disconnected: " + (e.detail.clean ? "Closed cleanly" : "Connection dropped");
                 statusEl.style.display = 'block';
+                setPill('disconnected');
             });
 
             rfb.addEventListener("credentialsrequired", () => {
@@ -1166,13 +1425,16 @@
                 // rfb.sendCredentials({ password: "password" });
             });
 
-            // Adjust scale
-            rfb.scaleViewport = true;
-            rfb.resizeSession = true;
+            // Default scale handling applied via applyFit
 
         } catch (err) {
             console.error("VNC Error:", err);
             statusEl.textContent = "Connection Failed: " + err.message;
+            if (pill) {
+                pill.textContent = 'Error';
+                pill.classList.remove('bg-success','bg-warning');
+                pill.classList.add('bg-danger');
+            }
         }
     }
     
@@ -1252,10 +1514,6 @@
             return;
         }
         
-        if (!confirm('This will attempt to change the password INSIDE the Windows VM. The VM must be running and Tools installed. Continue?')) {
-            return;
-        }
-        
         showToast('Attempting to change VM password... This may take a moment.', 'info');
         
         try {
@@ -1320,13 +1578,11 @@
             document.getElementById('welcomeUser').textContent = `Welcome, ${user.username}`;
             
             if (user.role === 'admin') {
-                console.log("User is admin, enabling admin features.");
+                // admin features enabled
                 document.getElementById('adminLink').style.display = 'block';
                 isAdmin = true;
                 window.isAdmin = true; // For debugging
                 loadVMs();
-            } else {
-                console.log("User is NOT admin. Role:", user.role);
             }
         } catch (err) {
             console.error("Error checking user role:", err);

@@ -13,7 +13,11 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Password</label>
-                        <input type="password" class="form-control" id="password" required>
+    <div class="input-group">
+        <input type="password" class="form-control" id="password" required>
+        <button type="button" class="btn btn-outline-secondary" id="loginPasteBtn">Paste</button>
+        <button type="button" class="btn btn-outline-secondary" id="loginShowBtn">Show</button>
+    </div>
                     </div>
                     <button type="submit" class="btn btn-primary">Login</button>
                 </form>
@@ -26,6 +30,37 @@
 
 {% block scripts %}
 <script>
+    async function pasteIntoLoginPassword() {
+        try {
+            const txt = await navigator.clipboard.readText();
+            const el = document.getElementById('password');
+            if (el) {
+                el.value = txt;
+                el.focus();
+            }
+        } catch (e) {
+            const errEl = document.getElementById('error');
+            if (errEl) errEl.innerText = 'Clipboard access denied';
+        }
+    }
+    function toggleLoginPassword() {
+        const el = document.getElementById('password');
+        const btn = document.getElementById('loginShowBtn');
+        if (!el || !btn) return;
+        if (el.type === 'password') {
+            el.type = 'text';
+            btn.textContent = 'Hide';
+        } else {
+            el.type = 'password';
+            btn.textContent = 'Show';
+        }
+    }
+    (function() {
+        const pasteBtn = document.getElementById('loginPasteBtn');
+        const showBtn = document.getElementById('loginShowBtn');
+        if (pasteBtn) pasteBtn.addEventListener('click', pasteIntoLoginPassword);
+        if (showBtn) showBtn.addEventListener('click', toggleLoginPassword);
+    })();
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('username').value;
