@@ -1,0 +1,10 @@
+{
+  "webhookUrl": "https://discord.com/api/webhooks/1480096670158159924/H7Wz_DozX3Qmpn4kYvyCHgwhpIVXTG-7zd4Z6D29V5q4CqQ81OFR2GzM4s5mvZwPgAfz",
+  "events": {
+    "crash": true,
+    "start": false,
+    "stop": false,
+    "restart": false
+  },
+  "mentionRole": ""
+}
