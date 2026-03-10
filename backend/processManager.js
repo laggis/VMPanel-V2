@@ -438,6 +438,13 @@ class ProcessManager extends EventEmitter {
     return runtime.logs.slice(-lines);
   }
 
+  clearLogs(id) {
+    const runtime = this.procs[id];
+    if (!runtime) return false;
+    runtime.logs = [];
+    return true;
+  }
+
   sendStdin(id, command) {
     const runtime = this.procs[id];
     if (!runtime?.child?.stdin?.writable) return false;

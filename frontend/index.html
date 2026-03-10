@@ -1406,7 +1406,12 @@ function logHTML(e, term=''){
   return `<div class="log-entry"><span class="log-time">${t}</span><span class="log-level level-${lvl}">${lvl.toUpperCase()}</span><span class="log-msg">${highlightMatch(msg,term)}</span></div>`;
 }
 
-function clearLogs(){if(selectedId&&processes[selectedId])processes[selectedId].logs=[];document.getElementById('log-area').innerHTML='';}
+async function clearLogs(){
+  if(!selectedId)return;
+  if(processes[selectedId])processes[selectedId].logs=[];
+  document.getElementById('log-area').innerHTML='';
+  await api('DELETE',`/api/processes/${selectedId}/logs`);
+}
 function togglePause(){logPaused=!logPaused;document.getElementById('pause-btn').textContent=logPaused?'▶':'⏸';}
 function scrollToBottom(){document.getElementById('log-area').scrollTop=99999;}
 async function sendStdin(e){

@@ -275,6 +275,12 @@ app.get('/api/processes/:id/logs', auth.middleware('view'), (req, res) => {
   res.json(logs);
 });
 
+app.delete('/api/processes/:id/logs', auth.middleware('start'), (req, res) => {
+  const ok = manager.clearLogs(req.params.id);
+  if (!ok) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+});
+
 // Export logs as plain text
 app.get('/api/processes/:id/logs/export', auth.middleware('view'), (req, res) => {
   const logs = manager.getLogs(req.params.id, 2000);
