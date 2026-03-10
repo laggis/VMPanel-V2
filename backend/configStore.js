@@ -57,6 +57,8 @@ class ConfigStore {
         type:               p.type,
         path:               p.path,
         cwd:                p.cwd,
+        // npm script types: the npm script name to run (e.g. "dev", "start", "build")
+        npmScript:          p.npmScript  || '',
         env:                p.env || {},
         autoRestart:        p.autoRestart || 'never',
         autoStart:          p.autoStart  || false,

@@ -509,11 +509,17 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
           <option value="python">Python Script</option>
           <option value="node">Node.js App</option>
           <option value="npm_start">Node.js App (npm start)</option>
+          <option value="npm_script">npm run … (custom script)</option>
           <option value="shell">Shell Script (.sh)</option>
           <option value="batch">Batch File (.bat) — Windows</option>
           <option value="powershell">PowerShell Script (.ps1) — Windows</option>
         </select>
       </div>
+    </div>
+    <div class="form-group" id="new-npm-script-group" style="display:none;">
+      <label class="form-label">npm Script Name</label>
+      <input class="form-input" id="new-npm-script" placeholder="e.g. dev, build, start:prod">
+      <div class="form-hint">Runs <code>npm run &lt;script&gt;</code> from the working directory.</div>
     </div>
     <div class="form-group" id="path-group">
       <label class="form-label" id="path-label">Script Path (absolute)</label>
@@ -590,11 +596,17 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
           <option value="python">Python Script</option>
           <option value="node">Node.js App</option>
           <option value="npm_start">Node.js App (npm start)</option>
+          <option value="npm_script">npm run … (custom script)</option>
           <option value="shell">Shell Script (.sh)</option>
           <option value="batch">Batch File (.bat) — Windows</option>
           <option value="powershell">PowerShell Script (.ps1) — Windows</option>
         </select>
       </div>
+    </div>
+    <div class="form-group" id="edit-npm-script-group" style="display:none;">
+      <label class="form-label">npm Script Name</label>
+      <input class="form-input" id="edit-npm-script" placeholder="e.g. dev, build, start:prod">
+      <div class="form-hint">Runs <code>npm run &lt;script&gt;</code> from the working directory.</div>
     </div>
     <div class="form-group">
       <label class="form-label" id="edit-path-label">Script Path (absolute)</label>
@@ -1049,17 +1061,21 @@ function fbConfirmSelect() {
 
 function onTypeChange(){
   const type=document.getElementById('new-type').value;
-  const isNpm=type==='npm_start';
+  const isNpm=type==='npm_start'||type==='npm_script';
+  const isNpmScript=type==='npm_script';
   document.getElementById('path-label').textContent=isNpm?'Working Directory (where package.json is)':'Script Path (absolute)';
   document.getElementById('new-path').placeholder=isNpm?'C:\\bots\\mybot':'C:\\bots\\mybot\\main.py';
-  document.getElementById('path-hint').textContent=isNpm?'Point to the folder containing your package.json — npm start will run from here.':'';
+  document.getElementById('path-hint').textContent=isNpm?'Point to the folder containing your package.json.':'';
+  document.getElementById('new-npm-script-group').style.display=isNpmScript?'':'none';
 }
 function onEditTypeChange(){
   const type=document.getElementById('edit-type').value;
-  const isNpm=type==='npm_start';
+  const isNpm=type==='npm_start'||type==='npm_script';
+  const isNpmScript=type==='npm_script';
   document.getElementById('edit-path-label').textContent=isNpm?'Working Directory (where package.json is)':'Script Path (absolute)';
   document.getElementById('edit-path').placeholder=isNpm?'C:\\bots\\mybot':'C:\\bots\\mybot\\main.py';
-  document.getElementById('edit-path-hint').textContent=isNpm?'Point to the folder containing your package.json — npm start will run from here.':'';
+  document.getElementById('edit-path-hint').textContent=isNpm?'Point to the folder containing your package.json.':'';
+  document.getElementById('edit-npm-script-group').style.display=isNpmScript?'':'none';
 }
 function openEditModal(id){
   const p=processes[id];
@@ -1069,6 +1085,7 @@ function openEditModal(id){
   document.getElementById('edit-type').value=p.type||'node';
   document.getElementById('edit-path').value=p.path||'';
   document.getElementById('edit-cwd').value=p.cwd||'';
+  document.getElementById('edit-npm-script').value=p.npmScript||'';
   document.getElementById('edit-autorestart').value=p.autoRestart||'on-failure';
   const editAs = document.getElementById('edit-autostart');
   if(p.autoStart){ editAs.classList.add('on'); } else { editAs.classList.remove('on'); }
@@ -1086,23 +1103,29 @@ async function saveEditProcess(){
   const type=document.getElementById('edit-type').value;
   const pathVal=document.getElementById('edit-path').value.trim();
   const name=document.getElementById('edit-name').value.trim();
-  if(!name||!pathVal){toast(type==='npm_start'?'Name and working directory required':'Name and path required','error');return;}
+  const isNpmType=type==='npm_start'||type==='npm_script';
+  if(!name||!pathVal){toast(isNpmType?'Name and working directory required':'Name and path required','error');return;}
+  const npmScript=type==='npm_script'?document.getElementById('edit-npm-script').value.trim():'';
+  if(type==='npm_script'&&!npmScript){toast('Please enter an npm script name (e.g. dev)','error');return;}
   const cwdRaw=document.getElementById('edit-cwd').value.trim();
-  const cwd=type==='npm_start'?(cwdRaw||pathVal):(cwdRaw||undefined);
-  const r=await api('PATCH',`/api/processes/${id}`,{name,type,path:pathVal,cwd,env:document.getElementById('edit-env').value.trim(),autoRestart:document.getElementById('edit-autorestart').value,autoStart:document.getElementById('edit-autostart').classList.contains('on'),group:document.getElementById('edit-group').value.trim(),description:document.getElementById('edit-desc').value.trim()});
+  const cwd=isNpmType?(cwdRaw||pathVal):(cwdRaw||undefined);
+  const r=await api('PATCH',`/api/processes/${id}`,{name,type,path:pathVal,cwd,npmScript,env:document.getElementById('edit-env').value.trim(),autoRestart:document.getElementById('edit-autorestart').value,autoStart:document.getElementById('edit-autostart').classList.contains('on'),group:document.getElementById('edit-group').value.trim(),description:document.getElementById('edit-desc').value.trim()});
   if(r){closeModal('edit-modal');toast(`"${name}" updated`,'success');}
 }
 async function addProcess(){
   const name=document.getElementById('new-name').value.trim();
   const type=document.getElementById('new-type').value;
   const pathVal=document.getElementById('new-path').value.trim();
-  if(!name||!pathVal){toast(type==='npm_start'?'Name and working directory required':'Name and path required','error');return;}
+  const isNpmType=type==='npm_start'||type==='npm_script';
+  if(!name||!pathVal){toast(isNpmType?'Name and working directory required':'Name and path required','error');return;}
+  const npmScript=type==='npm_script'?document.getElementById('new-npm-script').value.trim():'';
+  if(type==='npm_script'&&!npmScript){toast('Please enter an npm script name (e.g. dev)','error');return;}
   const cwdRaw=document.getElementById('new-cwd').value.trim();
-  const cwd=type==='npm_start'?(cwdRaw||pathVal):(cwdRaw||undefined);
+  const cwd=isNpmType?(cwdRaw||pathVal):(cwdRaw||undefined);
   const tagsRaw=document.getElementById('new-tags').value.trim();
   const tags=tagsRaw?tagsRaw.split(',').map(t=>t.trim()).filter(Boolean):[];
-  const r=await api('POST','/api/processes',{name,type,path:pathVal,cwd,env:document.getElementById('new-env').value.trim(),autoRestart:document.getElementById('new-autorestart').value,autoStart:document.getElementById('new-autostart').classList.contains('on'),group:document.getElementById('new-group').value.trim(),description:document.getElementById('new-desc').value.trim(),tags});
-  if(r){closeModal('process-modal');['new-name','new-path','new-cwd','new-env','new-tags','new-group','new-desc'].forEach(i=>document.getElementById(i).value='');document.getElementById('new-type').value='discord_py';document.getElementById('new-autostart').classList.remove('on');onTypeChange();toast(`"${name}" registered`,'success');}
+  const r=await api('POST','/api/processes',{name,type,path:pathVal,cwd,npmScript,env:document.getElementById('new-env').value.trim(),autoRestart:document.getElementById('new-autorestart').value,autoStart:document.getElementById('new-autostart').classList.contains('on'),group:document.getElementById('new-group').value.trim(),description:document.getElementById('new-desc').value.trim(),tags});
+  if(r){closeModal('process-modal');['new-name','new-path','new-cwd','new-npm-script','new-env','new-tags','new-group','new-desc'].forEach(i=>document.getElementById(i).value='');document.getElementById('new-type').value='discord_py';document.getElementById('new-autostart').classList.remove('on');onTypeChange();toast(`"${name}" registered`,'success');}
 }
 
 // ── Tags ──────────────────────────────────────
@@ -1159,6 +1182,7 @@ const typeMeta={
   python:{icon:'🐍',label:'.py',iconClass:'icon-python',tagClass:'tag-py'},
   node:{icon:'⬡',label:'.js',iconClass:'icon-node',tagClass:'tag-js'},
   npm_start:{icon:'⬡',label:'npm start',iconClass:'icon-node',tagClass:'tag-npm'},
+  npm_script:{icon:'⬡',label:'npm run',iconClass:'icon-node',tagClass:'tag-npm'},
   shell:{icon:'💻',label:'.sh',iconClass:'icon-shell',tagClass:'tag-sh'},
   batch:{icon:'🪟',label:'.bat',iconClass:'icon-batch',tagClass:'tag-bat'},
   powershell:{icon:'💠',label:'.ps1',iconClass:'icon-powershell',tagClass:'tag-ps1'},

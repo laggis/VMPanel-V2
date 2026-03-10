@@ -231,9 +231,10 @@ app.get('/api/fs/browse', auth.middleware('view'), (req, res) => {
 });
 
 app.post('/api/processes', auth.middleware('add'), (req, res) => {
-  const { name, type, path: sp, cwd, env, autoRestart, autoStart, description, group } = req.body;
+  const { name, type, path: sp, cwd, env, autoRestart, autoStart, description, group, npmScript } = req.body;
   if (!name || !sp) return res.status(400).json({ error: 'name and path required' });
-  const proc = manager.add({ id: uuidv4(), name, type: type||'python', path: sp, cwd: cwd||path.dirname(sp), env: parseEnvStr(env||''), autoRestart: autoRestart||'never', autoStart: !!autoStart, group: group||'', description: description||'' });
+  const isNpmType = type === 'npm_start' || type === 'npm_script';
+  const proc = manager.add({ id: uuidv4(), name, type: type||'python', path: sp, cwd: cwd||(isNpmType ? sp : path.dirname(sp)), npmScript: npmScript||'', env: parseEnvStr(env||''), autoRestart: autoRestart||'never', autoStart: !!autoStart, group: group||'', description: description||'' });
   if (req.body.tags) { tagsStore[proc.id] = req.body.tags; saveTags(); }
   if (req.body.notes) { notesStore[proc.id] = req.body.notes; saveNotes(); }
   const enriched = { ...proc, tags: tagsStore[proc.id]||[], notes: notesStore[proc.id]||'' };

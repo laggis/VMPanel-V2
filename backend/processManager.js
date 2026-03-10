@@ -32,7 +32,8 @@ const LAUNCHERS = {
   python:      { cmd: PYTHON_CMD,                                            argsFn: (p) => [p],                              shell: false },
   python2:     { cmd: PYTHON2_CMD,                                           argsFn: (p) => [p],                              shell: false },
   node:        { cmd: 'node',                                                argsFn: (p) => [p],                              shell: false },
-  npm_start:   { cmd: process.platform === 'win32' ? 'npm.cmd' : 'npm',     argsFn: (p) => ['start'],                        shell: process.platform === 'win32' },
+  npm_start:   { cmd: process.platform === 'win32' ? 'npm.cmd' : 'npm',     argsFn: (p) => ['start'],                        shell: process.platform === 'win32', cwdFromDir: true },
+  npm_script:  { cmd: process.platform === 'win32' ? 'npm.cmd' : 'npm',     argsFn: (p, script) => ['run', script],          shell: process.platform === 'win32', cwdFromDir: true },
   discord_py:  { cmd: PYTHON_CMD,                                            argsFn: (p) => [p],                              shell: false },
   discord_js:  { cmd: 'node',                                                argsFn: (p) => [p],                              shell: false },
   shell:       { cmd: 'bash',                                                argsFn: (p) => [p],                              shell: false },
@@ -202,6 +203,7 @@ class ProcessManager extends EventEmitter {
       type:        r.type,
       path:        r.path,
       cwd:         r.cwd,
+      npmScript:   r.npmScript || '',
       env:         r.env,
       autoRestart:         r.autoRestart,
       autoStart:           r.autoStart || false,
@@ -224,7 +226,7 @@ class ProcessManager extends EventEmitter {
     this._initRuntime(procDef);
     this.config.save(Object.values(this.procs).map(r => ({
       id: r.id, name: r.name, type: r.type, path: r.path,
-      cwd: r.cwd, env: r.env, autoRestart: r.autoRestart, autoStart: r.autoStart||false, startOrder: r.startOrder||0, startDelay: r.startDelay||0, watchFile: r.watchFile||false, cpuAlertThreshold: r.cpuAlertThreshold||0, memAlertThreshold: r.memAlertThreshold||0, group: r.group||'', description: r.description,
+      cwd: r.cwd, npmScript: r.npmScript||'', env: r.env, autoRestart: r.autoRestart, autoStart: r.autoStart||false, startOrder: r.startOrder||0, startDelay: r.startDelay||0, watchFile: r.watchFile||false, cpuAlertThreshold: r.cpuAlertThreshold||0, memAlertThreshold: r.memAlertThreshold||0, group: r.group||'', description: r.description,
     })));
     return this.get(procDef.id);
   }
@@ -233,11 +235,11 @@ class ProcessManager extends EventEmitter {
     const runtime = this.procs[id];
     if (!runtime) return null;
     // Allowed editable fields
-    const allowed = ['name', 'type', 'path', 'cwd', 'env', 'autoRestart', 'autoStart', 'startOrder', 'startDelay', 'watchFile', 'cpuAlertThreshold', 'memAlertThreshold', 'group', 'description'];
+    const allowed = ['name', 'type', 'path', 'cwd', 'npmScript', 'env', 'autoRestart', 'autoStart', 'startOrder', 'startDelay', 'watchFile', 'cpuAlertThreshold', 'memAlertThreshold', 'group', 'description'];
     allowed.forEach(k => { if (fields[k] !== undefined) runtime[k] = fields[k]; });
     this.config.save(Object.values(this.procs).map(r => ({
       id: r.id, name: r.name, type: r.type, path: r.path,
-      cwd: r.cwd, env: r.env, autoRestart: r.autoRestart, autoStart: r.autoStart||false, startOrder: r.startOrder||0, startDelay: r.startDelay||0, watchFile: r.watchFile||false, cpuAlertThreshold: r.cpuAlertThreshold||0, memAlertThreshold: r.memAlertThreshold||0, group: r.group||'', description: r.description,
+      cwd: r.cwd, npmScript: r.npmScript||'', env: r.env, autoRestart: r.autoRestart, autoStart: r.autoStart||false, startOrder: r.startOrder||0, startDelay: r.startDelay||0, watchFile: r.watchFile||false, cpuAlertThreshold: r.cpuAlertThreshold||0, memAlertThreshold: r.memAlertThreshold||0, group: r.group||'', description: r.description,
     })));
     return this.get(id);
   }
@@ -249,7 +251,7 @@ class ProcessManager extends EventEmitter {
     delete this.procs[id];
     this.config.save(Object.values(this.procs).map(r => ({
       id: r.id, name: r.name, type: r.type, path: r.path,
-      cwd: r.cwd, env: r.env, autoRestart: r.autoRestart, autoStart: r.autoStart||false, startOrder: r.startOrder||0, startDelay: r.startDelay||0, watchFile: r.watchFile||false, cpuAlertThreshold: r.cpuAlertThreshold||0, memAlertThreshold: r.memAlertThreshold||0, group: r.group||'', description: r.description,
+      cwd: r.cwd, npmScript: r.npmScript||'', env: r.env, autoRestart: r.autoRestart, autoStart: r.autoStart||false, startOrder: r.startOrder||0, startDelay: r.startDelay||0, watchFile: r.watchFile||false, cpuAlertThreshold: r.cpuAlertThreshold||0, memAlertThreshold: r.memAlertThreshold||0, group: r.group||'', description: r.description,
     })));
     return true;
   }
@@ -263,9 +265,17 @@ class ProcessManager extends EventEmitter {
     if (!launcher) return { ok: false, error: `Unknown type: ${runtime.type}` };
 
     const cmd  = launcher.cmd;
-    const args = launcher.argsFn(runtime.path);
+    const args = launcher.argsFn(runtime.path, runtime.npmScript);
     const env  = { ...process.env, ...runtime.env };
-    const cwd  = runtime.cwd || path.dirname(runtime.path);
+    // npm_script / npm_start run from the project dir, not a file path
+    const cwd  = runtime.cwd || (launcher.cwdFromDir ? runtime.path : path.dirname(runtime.path));
+
+    // Validate npm_script has a script name set
+    if (runtime.type === 'npm_script' && !runtime.npmScript) {
+      this._log(id, 'error', 'npm_script type requires an "npmScript" field (e.g. "dev")');
+      this._setStatus(id, 'error');
+      return { ok: false, error: 'Missing npmScript field' };
+    }
 
     this._log(id, 'info', `Starting: ${cmd} ${args.join(' ')}`);
     this._setStatus(id, 'starting');
@@ -444,7 +454,7 @@ class ProcessManager extends EventEmitter {
     if (!runtime) return { ok: false, error: 'Process not found' };
 
     const cwd = runtime.cwd || path.dirname(runtime.path);
-    const isNode = runtime.type === 'node' || runtime.type === 'discord_js' || runtime.type === 'npm_start';
+    const isNode = runtime.type === 'node' || runtime.type === 'discord_js' || runtime.type === 'npm_start' || runtime.type === 'npm_script';
     const isPython = ['python', 'python2', 'discord_py'].includes(runtime.type);
 
     let cmd, args;
