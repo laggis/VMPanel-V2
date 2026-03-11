@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login-bg"></div>
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-mark"><i class="fas fa-server"></i></div>
+      <div class="login-logo-name">Control<em>Panel</em></div>
+    </div>
+    <div class="login-heading">Welcome back</div>
+    <div class="login-sub">Sign in to manage your VPS instances</div>
+
+    <div class="form-row">
+      <label class="input-label">Username</label>
+      <input type="text" id="username" class="input" placeholder="Enter username" autocomplete="username" autofocus>
+    </div>
+    <div class="form-row">
+      <label class="input-label">Password</label>
+      <div class="input-row">
+        <input type="password" id="password" class="input" placeholder="Enter password" autocomplete="current-password">
+        <button type="button" class="btn btn-ghost" id="showPassBtn" style="flex-shrink:0;padding:8px 12px;" title="Show password">
+          <i class="fas fa-eye"></i>
+        </button>
+      </div>
+    </div>
+
+    <button id="loginBtn" class="btn btn-primary btn-full" style="margin-top:8px; padding:10px;">
+      <i class="fas fa-sign-in-alt"></i> Sign In
+    </button>
+    <div class="login-err" id="loginErr"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const passInput = document.getElementById('password');
+const showBtn   = document.getElementById('showPassBtn');
+const loginBtn  = document.getElementById('loginBtn');
+const errEl     = document.getElementById('loginErr');
+
+showBtn.addEventListener('click', () => {
+  const show = passInput.type === 'password';
+  passInput.type = show ? 'text' : 'password';
+  showBtn.innerHTML = `<i class="fas fa-eye${show ? '-slash' : ''}"></i>`;
+});
+
+async function doLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = passInput.value;
+  if (!username || !password) { errEl.textContent = 'Please fill in all fields.'; return; }
+
+  loginBtn.disabled = true;
+  loginBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Signing in...';
+  errEl.textContent = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('username', username);
+    fd.append('password', password);
+    const res = await axios.post('/auth/token', fd);
+    localStorage.setItem('token', res.data.access_token);
+    const me = await axios.get('/auth/me', { headers: { Authorization: 'Bearer ' + res.data.access_token } });
+    window.location.href = me.data.role === 'admin' ? '/admin' : '/dashboard';
+  } catch {
+    errEl.textContent = 'Invalid username or password.';
+    loginBtn.disabled = false;
+    loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
+    passInput.focus();
+  }
+}
+
+loginBtn.addEventListener('click', doLogin);
+document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+</script>
+{% endblock %}

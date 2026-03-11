@@ -1,0 +1,1008 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="app-wrap">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <a class="sidebar-logo" href="/dashboard">
+      <div class="logo-mark"><i class="fas fa-server"></i></div>
+      <span class="logo-text">Control<em>Panel</em></span>
+    </a>
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Navigation</div>
+      <a class="nav-link active" href="/dashboard"><i class="fas fa-th-large"></i> Dashboard</a>
+      <a class="nav-link hidden" href="/admin" id="adminLink"><i class="fas fa-shield-alt"></i> Admin Panel</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-user">
+        <div class="user-avatar" id="userAvatar">U</div>
+        <span class="user-name" id="sidebarUsername">Loading...</span>
+      </div>
+      <button class="nav-link" onclick="openModal('profileModal')"><i class="fas fa-user-cog"></i> Profile</button>
+      <button class="nav-link" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="topbar">
+      <span class="topbar-title" id="topbarTitle">Your VPS Instances</span>
+      <div class="topbar-actions">
+        <span class="badge badge-gray" id="vmCountBadge" style="display:none"></span>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <!-- Filter Bar -->
+      <div class="filter-bar">
+        <input type="text" class="input" id="vmSearchInput" placeholder="Search by name or ID…">
+        <select class="select" id="vmStatusFilter">
+          <option value="">All Status</option>
+          <option value="running">Running</option>
+          <option value="stopped">Stopped</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" id="vmClearFilters"><i class="fas fa-times"></i> Clear</button>
+        <span class="filter-count" id="vmFilterCount"></span>
+      </div>
+
+      <!-- VM Grid -->
+      <div class="vm-grid" id="vmList">
+        <div style="grid-column:1/-1;color:var(--text3);padding:40px 0;text-align:center;">
+          <i class="fas fa-circle-notch fa-spin" style="font-size:24px;opacity:.4;"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SERVER DETAIL VIEW (shown when ?vm=ID) ═══ -->
+<div class="app-wrap hidden" id="serverDetailView">
+  <aside class="sidebar" id="sidebarDetail">
+    <a class="sidebar-logo" href="/dashboard">
+      <div class="logo-mark"><i class="fas fa-server"></i></div>
+      <span class="logo-text">Control<em>Panel</em></span>
+    </a>
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Navigation</div>
+      <a class="nav-link" href="/dashboard"><i class="fas fa-arrow-left"></i> All Servers</a>
+      <a class="nav-link hidden" href="/admin" id="adminLink2"><i class="fas fa-shield-alt"></i> Admin Panel</a>
+      <div class="nav-section-label" style="margin-top:10px;">Server</div>
+      <button class="nav-link" onclick="scrollToTab('info')"><i class="fas fa-info-circle"></i> Info</button>
+      <button class="nav-link" onclick="scrollToTab('troubleshoot')"><i class="fas fa-tools"></i> Troubleshoot</button>
+      <button class="nav-link" onclick="scrollToTab('actions')"><i class="fas fa-bolt"></i> Actions</button>
+      <button class="nav-link" onclick="scrollToTab('tasks')"><i class="fas fa-calendar-alt"></i> Scheduled</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-user">
+        <div class="user-avatar" id="userAvatarD">U</div>
+        <span class="user-name" id="sidebarUsernameD">...</span>
+      </div>
+      <button class="nav-link" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Sign Out</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <span class="topbar-title" id="detailTopbarTitle">Server Detail</span>
+      <div class="topbar-actions" id="detailStatusArea"></div>
+    </header>
+    <div class="page-body" id="serverDetailBody">
+      <!-- filled by renderDetailView() -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODALS ═══ -->
+
+<!-- VNC Console -->
+<div class="modal-ov" id="vncModal">
+  <div class="modal-box xl">
+    <div class="modal-hd">
+      <span class="modal-title"><i class="fas fa-desktop"></i> Live Console
+        <span class="badge badge-red" style="margin-left:4px;">VNC</span>
+        <span id="vncPill" class="badge badge-yellow" style="margin-left:4px;">Connecting</span>
+      </span>
+      <button class="modal-close" onclick="closeModal('vncModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="vnc-wrap">
+      <div id="vnc-container"></div>
+      <div id="vnc-status" style="position:absolute;color:#fff;font-size:13px;background:rgba(0,0,0,.6);padding:6px 12px;border-radius:6px;">Connecting…</div>
+    </div>
+    <div class="modal-ft" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <div>
+          <label class="input-label" style="margin:0 6px 0 0;display:inline;">Quality</label>
+          <select id="vncQuality" class="select" style="width:auto;display:inline-block;padding:5px 8px;">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="vncFitWidth" checked> Fit width
+        </label>
+        <button class="btn btn-ghost btn-sm" id="vncResetBtn">Reset</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-warning btn-sm" id="vncCAD"><i class="fas fa-keyboard"></i> Ctrl+Alt+Del</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('vncModal')">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Snapshots -->
+<div class="modal-ov" id="snapshotModal">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <span class="modal-title"><i class="fas fa-camera"></i> Snapshots</span>
+      <button class="modal-close" onclick="closeModal('snapshotModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-bd">
+      <div class="form-row">
+        <label class="input-label">Create New Snapshot</label>
+        <div class="input-row">
+          <input type="text" id="snapshotName" class="input" placeholder="Snapshot name">
+          <button class="btn btn-primary btn-sm" onclick="createSnapshot()" style="flex-shrink:0;"><i class="fas fa-plus"></i> Create</button>
+        </div>
+      </div>
+      <hr class="hr">
+      <div class="text-sm text-muted mb-2">Existing snapshots</div>
+      <div id="snapshotList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Change Guest Password -->
+<div class="modal-ov" id="guestPasswordModal">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <span class="modal-title"><i class="fas fa-key"></i> Change Guest Password</span>
+      <button class="modal-close" onclick="closeModal('guestPasswordModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-bd">
+      <input type="hidden" id="guestPassVmId">
+      <div class="form-row">
+        <label class="input-label">New Administrator Password</label>
+        <div class="input-row">
+          <input type="password" id="guestNewPassword" class="input" placeholder="New password">
+          <button class="btn btn-ghost btn-sm" id="gnpShow" style="flex-shrink:0;padding:8px 10px;"><i class="fas fa-eye"></i></button>
+          <button class="btn btn-ghost btn-sm" id="gnpGen" style="flex-shrink:0;" title="Generate"><i class="fas fa-dice"></i></button>
+          <button class="btn btn-ghost btn-sm" id="gnpCopy" style="flex-shrink:0;" title="Copy"><i class="fas fa-copy"></i></button>
+        </div>
+        <div class="input-hint">Changes the Windows Administrator password inside the VM.</div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:16px;">
+        <input type="checkbox" id="forceRestartCheck">
+        <span>Force hard restart after change</span>
+      </label>
+      <button class="btn btn-warning btn-full" onclick="submitGuestPassword()">
+        <i class="fas fa-key"></i> Change Password
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- VM Settings (RDP) -->
+<div class="modal-ov" id="rdpModal">
+  <div class="modal-box wide">
+    <div class="modal-hd">
+      <span class="modal-title"><i class="fas fa-cog"></i> VM Settings</span>
+      <button class="modal-close" onclick="closeModal('rdpModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-bd">
+      <input type="hidden" id="rdpVmId">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-row">
+          <label class="input-label">Host / IP Address</label>
+          <input type="text" id="rdpIp" class="input" placeholder="remotedesktop.example.com">
+        </div>
+        <div class="form-row">
+          <label class="input-label">RDP Port</label>
+          <input type="number" id="rdpPort" class="input" value="3389">
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="input-label">RDP Username</label>
+        <input type="text" id="rdpUser" class="input" value="Administrator">
+      </div>
+      <input type="hidden" id="guestUser" value="Administrator">
+      <hr class="hr">
+      <div class="text-sm" style="font-weight:700;margin-bottom:10px;color:var(--text);">Reset VM Password</div>
+      <div class="form-row">
+        <label class="input-label">New Password</label>
+        <div class="input-row">
+          <input type="password" id="guestPass" class="input" placeholder="New password for VM">
+          <button class="btn btn-ghost btn-sm" id="gpShow" style="flex-shrink:0;padding:8px 10px;"><i class="fas fa-eye"></i></button>
+          <button class="btn btn-ghost btn-sm" id="gpGen" style="flex-shrink:0;" title="Generate"><i class="fas fa-dice"></i></button>
+          <button class="btn btn-ghost btn-sm" id="gpCopy" style="flex-shrink:0;" title="Copy"><i class="fas fa-copy"></i></button>
+          <button class="btn btn-warning btn-sm" onclick="changeVmPassword()" style="flex-shrink:0;"><i class="fas fa-key"></i></button>
+        </div>
+        <div class="input-hint" id="guestPassHelp"></div>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModal('rdpModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRdpSettings()"><i class="fas fa-save"></i> Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- Expiration -->
+<div class="modal-ov" id="expirationModal">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <span class="modal-title"><i class="fas fa-calendar-alt"></i> Edit Expiration Date</span>
+      <button class="modal-close" onclick="closeModal('expirationModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-bd">
+      <input type="hidden" id="expirationVmId">
+      <div class="form-row">
+        <label class="input-label">Expiration Date</label>
+        <input type="date" id="expirationDate" class="input">
+        <div class="input-hint">Leave empty to remove expiration.</div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveExpiration()"><i class="fas fa-save"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Profile -->
+<div class="modal-ov" id="profileModal">
+  <div class="modal-box wide">
+    <div class="modal-hd">
+      <span class="modal-title"><i class="fas fa-user-cog"></i> Profile Settings</span>
+      <button class="modal-close" onclick="closeModal('profileModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-bd">
+      <div class="text-sm" style="font-weight:700;margin-bottom:10px;color:var(--text);">Discord Notifications</div>
+      <div class="form-row">
+        <label class="input-label">Private Webhook <span class="text-muted text-xs">(security/errors)</span></label>
+        <input type="text" id="profileWebhookUrl" class="input" placeholder="https://discord.com/api/webhooks/…">
+      </div>
+      <div class="form-row">
+        <label class="input-label">Public Webhook <span class="text-muted text-xs">(status updates – optional)</span></label>
+        <input type="text" id="profileWebhookPublic" class="input" placeholder="https://discord.com/api/webhooks/…">
+      </div>
+      <button class="btn btn-accent-soft btn-full mb-3" onclick="saveWebhooks()"><i class="fab fa-discord"></i> Save Webhooks</button>
+
+      <hr class="hr">
+      <div class="text-sm" style="font-weight:700;margin-bottom:10px;color:var(--text);">Change Password</div>
+      <div class="form-row">
+        <label class="input-label">Current Password</label>
+        <input type="password" id="currentPassword" class="input">
+      </div>
+      <div class="form-row">
+        <label class="input-label">New Password</label>
+        <input type="password" id="newPassword" class="input">
+      </div>
+      <button class="btn btn-danger-soft btn-full" onclick="changeAccountPassword()"><i class="fas fa-lock"></i> Update Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reinstall -->
+<div class="modal-ov" id="reinstallModal">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <span class="modal-title" style="color:var(--red);"><i class="fas fa-exclamation-triangle"></i> Reinstall Server</span>
+      <button class="modal-close" onclick="closeModal('reinstallModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-bd">
+      <input type="hidden" id="reinstallVmId">
+      <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:700;color:var(--red);margin-bottom:6px;"><i class="fas fa-exclamation-circle"></i> This cannot be undone</div>
+        <div class="text-sm" style="color:var(--text2);line-height:1.7;">All data on the server will be wiped. The password will be reset to <code style="background:var(--bg3);padding:1px 6px;border-radius:4px;font-family:var(--mono);">Kossa123</code>. Please change it immediately after.</div>
+      </div>
+      <div class="form-row">
+        <label class="input-label" style="color:var(--red);">Type <strong>REINSTALL</strong> to confirm</label>
+        <input type="text" id="reinstallConfirmInput" class="input" placeholder="REINSTALL">
+      </div>
+      <button class="btn btn-danger btn-full" onclick="submitReinstall()"><i class="fas fa-sync-alt"></i> Reinstall Server</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+  import RFB from 'https://cdn.jsdelivr.net/npm/@novnc/novnc@1.4.0/core/rfb.js';
+  window.RFB = RFB;
+</script>
+<script>
+const selectedVmIdRaw = "{{ vm_id|default('') }}";
+const selectedVmId = selectedVmIdRaw ? parseInt(selectedVmIdRaw) : null;
+let currentVMs = [], isAdmin = false;
+let statsInterval = null, taskInterval = null;
+let activeSnapshotVmId = null;
+let rfb = null;
+
+/* ── INIT ── */
+(async () => {
+  await checkUserRole();
+  await loadVMs();
+  setupFilters();
+  setupPasswordButtons();
+})();
+
+async function checkUserRole() {
+  try {
+    const r = await api.get('/auth/me');
+    const u = r.data;
+    const uname = u.username || 'User';
+    const initial = uname.charAt(0).toUpperCase();
+
+    document.getElementById('sidebarUsername').textContent = uname;
+    document.getElementById('sidebarUsernameD').textContent = uname;
+    document.getElementById('userAvatar').textContent = initial;
+    document.getElementById('userAvatarD').textContent = initial;
+
+    if (u.role === 'admin') {
+      isAdmin = true;
+      document.getElementById('adminLink').classList.remove('hidden');
+      document.getElementById('adminLink2').classList.remove('hidden');
+    }
+
+    // Load profile webhooks into modal
+    document.getElementById('profileWebhookUrl').value    = u.discord_webhook_url    || '';
+    document.getElementById('profileWebhookPublic').value = u.discord_webhook_public || '';
+  } catch (e) { console.error(e); }
+}
+
+/* ── LOAD VMS ── */
+async function loadVMs() {
+  clearPolling();
+  try {
+    const r = await api.get('/vms/');
+    currentVMs = r.data;
+
+    if (selectedVmId !== null) {
+      const vm = currentVMs.find(v => v.id === selectedVmId);
+      if (vm) { showDetailView(vm); return; }
+    }
+    renderGrid(currentVMs);
+  } catch (e) {
+    showToast('Failed to load VMs', 'danger');
+  }
+}
+
+/* ── GRID VIEW ── */
+function renderGrid(all) {
+  document.getElementById('serverDetailView').classList.add('hidden');
+  document.querySelector('.app-wrap').classList.remove('hidden');
+
+  const filtered = applyFilters(all);
+  const container = document.getElementById('vmList');
+  container.innerHTML = '';
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:60px 0;color:var(--text3);">
+      <i class="fas fa-server" style="font-size:32px;opacity:.3;display:block;margin-bottom:12px;"></i>No VPS instances found</div>`;
+    return;
+  }
+
+  filtered.forEach(vm => {
+    const card = document.createElement('div');
+    const running = vm.status === 'running';
+    const busy    = !!vm.task_state;
+    card.className = `vm-card ${busy ? 'vm-busy' : running ? 'vm-running' : 'vm-stopped'}`;
+    card.dataset.vmId = vm.id;
+
+    const rdpHost = (vm.rdp_ip && !vm.rdp_ip.includes('Unknown')) ? vm.rdp_ip : 'remotedesktop.penguinhosting.host';
+    const expiryHtml = expiryBadge(vm.expiration_date);
+
+    let taskHtml = '';
+    if (busy) {
+      taskHtml = `<div class="vm-task">
+        <div class="task-msg">
+          <span id="task-msg-${vm.id}"><i class="fas fa-circle-notch fa-spin"></i> ${vm.task_message || 'Processing…'}</span>
+          <span id="task-pct-${vm.id}">${vm.task_progress}%</span>
+        </div>
+        <div class="prog-track"><div class="prog-fill" id="task-bar-${vm.id}" style="width:${vm.task_progress}%"></div></div>
+      </div>`;
+      startTaskPolling(vm.id);
+    }
+
+    const dis  = busy ? 'disabled' : '';
+    const rdis = (busy || !running) ? 'disabled' : '';
+    const sdis = (busy || running) ? 'disabled' : '';
+
+    card.innerHTML = `
+      <div class="vm-card-hd">
+        <div class="vm-os-icon"><i class="fab fa-windows"></i></div>
+        <div style="flex:1;overflow:hidden;">
+          <div class="vm-name">${vm.name}</div>
+          <div class="vm-id-tag">#${vm.id}</div>
+        </div>
+        ${running ? `<span class="sbadge sbadge-green"><span class="dot"></span>Running</span>` :
+                    `<span class="sbadge sbadge-gray"><span class="dot"></span>Stopped</span>`}
+      </div>
+      <div class="vm-meta">
+        <div class="meta-item"><label>RDP</label><span>${rdpHost}:${vm.rdp_port}</span></div>
+        <div class="meta-item"><label>User</label><span>${vm.rdp_username || 'Administrator'}</span></div>
+        <div class="meta-item"><label>Expires</label><span class="plain">${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : '—'}${isAdmin ? ` <button onclick="openExpirationModal(${vm.id})" class="btn btn-ghost btn-xs" title="Edit" style="padding:1px 5px;"><i class="fas fa-edit"></i></button>` : ''}</span></div>
+        <div class="meta-item"><label>Status</label><span id="rdp-display-${vm.id}" class="plain">Port ${vm.rdp_port}</span></div>
+      </div>
+      ${taskHtml}
+      <div class="vm-card-actions">
+        <button class="btn btn-primary btn-full" onclick="downloadRDP(${vm.id})" ${dis}>
+          <i class="fas fa-download"></i> Connect (RDP)
+        </button>
+        <button class="btn btn-ghost btn-full" onclick="window.location.href='/server/${vm.id}'" ${dis}>
+          <i class="fas fa-external-link-alt"></i> Open Server Page
+        </button>
+        <div class="vm-power-row">
+          <button class="btn btn-success btn-sm" onclick="controlVM(${vm.id},'start')" ${sdis}><i class="fas fa-play"></i> Start</button>
+          <button class="btn btn-danger btn-sm"  onclick="controlVM(${vm.id},'stop')"  ${rdis}><i class="fas fa-stop"></i> Stop</button>
+          <button class="btn btn-warning btn-sm" onclick="controlVM(${vm.id},'restart')" ${rdis}><i class="fas fa-redo"></i> Restart</button>
+        </div>
+      </div>`;
+
+    container.appendChild(card);
+    if (running && !busy) startStatsPolling(vm.id);
+  });
+}
+
+/* ── DETAIL VIEW ── */
+function showDetailView(vm) {
+  document.querySelector('.app-wrap').classList.add('hidden');
+  document.getElementById('serverDetailView').classList.remove('hidden');
+
+  document.getElementById('detailTopbarTitle').textContent = vm.name;
+  const statusArea = document.getElementById('detailStatusArea');
+  const running = vm.status === 'running';
+  statusArea.innerHTML = running
+    ? `<span class="sbadge sbadge-green"><span class="dot"></span>Running</span>`
+    : `<span class="sbadge sbadge-gray"><span class="dot"></span>Stopped</span>`;
+
+  const rdpHost = (vm.rdp_ip && !vm.rdp_ip.includes('Unknown')) ? vm.rdp_ip : 'remotedesktop.penguinhosting.host';
+  const dis  = vm.task_state ? 'disabled' : '';
+  const rdis = (vm.task_state || !running) ? 'disabled' : '';
+  const sdis = (vm.task_state || running)  ? 'disabled' : '';
+
+  let taskHtml = '';
+  if (vm.task_state) {
+    taskHtml = `<div class="card mb-4" style="border-color:rgba(245,158,11,.3);">
+      <div class="card-hd"><span class="card-hd-title"><i class="fas fa-circle-notch fa-spin" style="color:var(--yellow);"></i> Task in Progress</span></div>
+      <div class="card-bd">
+        <div class="task-msg"><span id="task-msg-${vm.id}">${vm.task_message||'Processing…'}</span><span id="task-pct-${vm.id}">${vm.task_progress}%</span></div>
+        <div class="prog-track mt-2"><div class="prog-fill" id="task-bar-${vm.id}" style="width:${vm.task_progress}%"></div></div>
+      </div></div>`;
+    startTaskPolling(vm.id);
+  }
+
+  document.getElementById('serverDetailBody').innerHTML = `
+    ${taskHtml}
+
+    <!-- Info -->
+    <div id="tab-info" class="card mb-4">
+      <div class="card-hd">
+        <span class="card-hd-title"><i class="fas fa-info-circle"></i> Service Information</span>
+        <button class="btn btn-primary btn-sm" onclick="downloadRDP(${vm.id})" ${dis}><i class="fas fa-download"></i> Download .RDP</button>
+      </div>
+      <div class="card-bd">
+        <div class="detail-grid">
+          <div class="info-block"><div class="info-block-lbl">Connection</div><div class="info-block-val">${rdpHost}:${vm.rdp_port}</div></div>
+          <div class="info-block"><div class="info-block-lbl">RDP Username</div><div class="info-block-val">${vm.rdp_username||'Administrator'}</div></div>
+          <div class="info-block"><div class="info-block-lbl">VM ID</div><div class="info-block-val">#${vm.id}</div></div>
+          <div class="info-block">
+            <div class="info-block-lbl">Expires</div>
+            <div class="info-block-val plain">${vm.expiration_date ? new Date(vm.expiration_date).toLocaleDateString() : 'Never'}
+              ${isAdmin ? `<button onclick="openExpirationModal(${vm.id})" class="btn btn-ghost btn-xs" style="margin-left:6px;"><i class="fas fa-edit"></i></button>` : ''}
+            </div>
+          </div>
+        </div>
+        <hr class="hr">
+        <div class="text-sm" style="font-weight:700;margin-bottom:12px;color:var(--text);">Power Controls</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-success" onclick="controlVM(${vm.id},'start')" ${sdis}><i class="fas fa-play"></i> Start</button>
+          <button class="btn btn-danger"  onclick="controlVM(${vm.id},'stop')"  ${rdis}><i class="fas fa-stop"></i> Stop</button>
+          <button class="btn btn-warning" onclick="controlVM(${vm.id},'restart')" ${rdis}><i class="fas fa-redo"></i> Restart</button>
+        </div>
+        <hr class="hr">
+        <div class="text-sm" style="font-weight:700;margin-bottom:10px;color:var(--text);">Live Resource Usage</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:5px;"><span>CPU Load</span><span id="cpu-text-${vm.id}">--%</span></div>
+            <div class="prog-track"><div class="prog-fill" id="cpu-bar-${vm.id}" style="width:0%;background:var(--cyan);"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:5px;"><span>Memory</span><span id="mem-text-${vm.id}">-- MB</span></div>
+            <div class="prog-track"><div class="prog-fill" id="mem-bar-${vm.id}" style="width:0%;background:var(--purple);"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Troubleshoot -->
+    <div id="tab-troubleshoot" class="card mb-4">
+      <div class="card-hd"><span class="card-hd-title"><i class="fas fa-tools"></i> Troubleshoot</span></div>
+      <div class="card-bd">
+        <div class="tool-grid">
+          <button class="tool-btn" onclick="openVNC(${vm.id})" ${rdis}>
+            <div class="tb-icon"><i class="fas fa-desktop"></i></div>
+            <div><div class="tb-label">Live Console</div><div class="tb-sub">VNC monitor</div></div>
+          </button>
+          <button class="tool-btn" onclick="getVmIp(${vm.id})" ${rdis}>
+            <div class="tb-icon"><i class="fas fa-network-wired"></i></div>
+            <div><div class="tb-label">Get IP Address</div><div class="tb-sub">Fetch guest IP</div></div>
+          </button>
+          <button class="tool-btn" onclick="testRdp(${vm.id})">
+            <div class="tb-icon"><i class="fas fa-plug"></i></div>
+            <div><div class="tb-label">Test RDP</div><div class="tb-sub">Check connectivity</div></div>
+          </button>
+          <button class="tool-btn" onclick="disableLockout(${vm.id})" ${rdis}>
+            <div class="tb-icon"><i class="fas fa-user-shield"></i></div>
+            <div><div class="tb-label">Disable Lockout</div><div class="tb-sub">Threshold → 0</div></div>
+          </button>
+          <button class="tool-btn" onclick="enableRdp(${vm.id})" ${rdis}>
+            <div class="tb-icon"><i class="fas fa-door-open"></i></div>
+            <div><div class="tb-label">Enable RDP</div><div class="tb-sub">Open firewall</div></div>
+          </button>
+          <button class="tool-btn" onclick="disableNla(${vm.id})" ${rdis}>
+            <div class="tb-icon"><i class="fas fa-user-lock"></i></div>
+            <div><div class="tb-label">Disable NLA</div><div class="tb-sub">Easier first RDP</div></div>
+          </button>
+          <button class="tool-btn" onclick="setDhcp(${vm.id})" ${rdis}>
+            <div class="tb-icon"><i class="fas fa-exchange-alt"></i></div>
+            <div><div class="tb-label">Set NIC to DHCP</div><div class="tb-sub">Reset IP/DNS</div></div>
+          </button>
+          <button class="tool-btn" onclick="enablePing(${vm.id})" ${rdis}>
+            <div class="tb-icon"><i class="fas fa-wave-square"></i></div>
+            <div><div class="tb-label">Allow Ping</div><div class="tb-sub">Add ICMP rule</div></div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div id="tab-actions" class="card mb-4">
+      <div class="card-hd"><span class="card-hd-title"><i class="fas fa-bolt"></i> Actions</span></div>
+      <div class="card-bd">
+        <div class="tool-grid">
+          <button class="tool-btn" onclick="openSnapshotModal(${vm.id})" ${dis}>
+            <div class="tb-icon"><i class="fas fa-camera"></i></div>
+            <div><div class="tb-label">Snapshots</div><div class="tb-sub">Manage restore points</div></div>
+          </button>
+          <button class="tool-btn" onclick="openRDPModal(${vm.id})" ${dis}>
+            <div class="tb-icon"><i class="fas fa-cog"></i></div>
+            <div><div class="tb-label">Settings</div><div class="tb-sub">RDP & credentials</div></div>
+          </button>
+          <button class="tool-btn" onclick="openGuestPasswordModal(${vm.id})" ${dis}>
+            <div class="tb-icon"><i class="fas fa-key"></i></div>
+            <div><div class="tb-label">Change Password</div><div class="tb-sub">Guest OS password</div></div>
+          </button>
+          <button class="tool-btn t-danger" onclick="openReinstallModal(${vm.id})" ${dis}>
+            <div class="tb-icon"><i class="fas fa-sync-alt"></i></div>
+            <div><div class="tb-label">Reinstall</div><div class="tb-sub">Reset to clean Windows</div></div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scheduled Tasks -->
+    <div id="tab-tasks" class="card mb-4">
+      <div class="card-hd"><span class="card-hd-title"><i class="fas fa-calendar-alt"></i> Scheduled Tasks</span></div>
+      <div class="card-bd">
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:16px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:12px;"><i class="fas fa-sync-alt" style="color:var(--accent);"></i> Daily Auto-Reboot</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input type="time" id="rebootTime-${vm.id}" class="input" value="04:00" style="width:auto;">
+            <button class="btn btn-primary btn-sm" onclick="scheduleReboot(${vm.id},true)" ${rdis}><i class="fas fa-check"></i> Enable</button>
+            <button class="btn btn-danger-soft btn-sm" onclick="scheduleReboot(${vm.id},false)" ${rdis}><i class="fas fa-times"></i> Disable</button>
+          </div>
+          <div class="input-hint mt-2">Creates a Windows Scheduled Task to reboot daily at the selected time.</div>
+        </div>
+      </div>
+    </div>`;
+
+  if (vm.status === 'running' && !vm.task_state) startStatsPolling(vm.id);
+}
+
+/* ── EXPIRY BADGE ── */
+function expiryBadge(date) {
+  if (!date) return '<span style="color:var(--text3);font-size:12px;">Never</span>';
+  const d = new Date(date), now = new Date();
+  const days = Math.floor((d-now)/(1000*60*60*24));
+  if (days < 0)  return `<span class="badge badge-red">Expired</span>`;
+  if (days < 7)  return `<span class="badge badge-yellow">${days}d left</span>`;
+  if (days < 30) return `<span class="badge badge-yellow">${days}d left</span>`;
+  return `<span class="badge badge-gray">${d.toLocaleDateString()}</span>`;
+}
+
+/* ── FILTERS ── */
+function applyFilters(vms) {
+  const q = document.getElementById('vmSearchInput')?.value.trim().toLowerCase() || '';
+  const f = document.getElementById('vmStatusFilter')?.value || '';
+  let out = vms;
+  if (q) out = out.filter(v => String(v.id).includes(q) || v.name.toLowerCase().includes(q));
+  if (f) out = out.filter(v => v.status === f);
+  const countEl = document.getElementById('vmFilterCount');
+  if (countEl) countEl.textContent = `${out.length} result${out.length===1?'':'s'}`;
+  const badge = document.getElementById('vmCountBadge');
+  if (badge) { badge.textContent = `${out.length} VPS`; badge.style.display=''; }
+  return out;
+}
+
+function setupFilters() {
+  let t;
+  const reload = () => { clearTimeout(t); t = setTimeout(loadVMs, 200); };
+  document.getElementById('vmSearchInput')?.addEventListener('input', reload);
+  document.getElementById('vmStatusFilter')?.addEventListener('change', reload);
+  document.getElementById('vmClearFilters')?.addEventListener('click', () => {
+    document.getElementById('vmSearchInput').value = '';
+    document.getElementById('vmStatusFilter').value = '';
+    loadVMs();
+  });
+}
+
+/* ── POLLING ── */
+function clearPolling() {
+  if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+  if (taskInterval)  { clearInterval(taskInterval);  taskInterval  = null; }
+}
+
+function startStatsPolling(vmId) {
+  clearInterval(statsInterval);
+  const fetch = async () => {
+    try {
+      const r = await api.get(`/vms/${vmId}/stats`);
+      const s = r.data;
+      const cb = document.getElementById(`cpu-bar-${vmId}`);
+      const ct = document.getElementById(`cpu-text-${vmId}`);
+      const mb = document.getElementById(`mem-bar-${vmId}`);
+      const mt = document.getElementById(`mem-text-${vmId}`);
+      if (cb && ct) { cb.style.width = Math.min(s.cpu_percent,100)+'%'; ct.textContent = s.cpu_percent+'%'; }
+      if (mb && mt) { mb.style.width = Math.min((s.memory_mb/8192)*100,100)+'%'; mt.textContent = s.memory_mb+' MB'; }
+    } catch {}
+  };
+  fetch();
+  statsInterval = setInterval(fetch, 3500);
+}
+
+function startTaskPolling(vmId) {
+  clearInterval(taskInterval);
+  taskInterval = setInterval(async () => {
+    try {
+      const r = await api.get(`/vms/${vmId}`);
+      const vm = r.data;
+      if (!vm.task_state) { clearInterval(taskInterval); loadVMs(); return; }
+      const msg = document.getElementById(`task-msg-${vmId}`);
+      const pct = document.getElementById(`task-pct-${vmId}`);
+      const bar = document.getElementById(`task-bar-${vmId}`);
+      if (msg) msg.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> ${vm.task_message||'Processing…'}`;
+      if (pct) pct.textContent = vm.task_progress+'%';
+      if (bar) bar.style.width = vm.task_progress+'%';
+    } catch {}
+  }, 2200);
+}
+
+/* ── VM ACTIONS ── */
+async function controlVM(id, action) {
+  if (action !== 'start') {
+    const ok = await confirm2(`${action.charAt(0).toUpperCase()+action.slice(1)} VM`, `Are you sure you want to ${action} this server?`, action==='stop');
+    if (!ok) return;
+  }
+  try {
+    await api.post(`/vms/${id}/${action}`);
+    showToast(`${action.charAt(0).toUpperCase()+action.slice(1)} command sent`, 'success');
+    setTimeout(loadVMs, 800);
+  } catch (e) {
+    showToast('Action failed: ' + (e.response?.data?.detail||e.message), 'danger');
+  }
+}
+
+async function downloadRDP(vmId) {
+  try {
+    const r = await fetch(`/vms/${vmId}/rdp/download`, { headers: { Authorization: 'Bearer '+token } });
+    if (!r.ok) throw new Error((await r.json()).detail||'Download failed');
+    const blob = await r.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `vm_${vmId}.rdp`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  } catch (e) { showToast('Download failed: '+e.message, 'danger'); }
+}
+
+async function getVmIp(vmId) {
+  const t = showToast('Fetching IP…', 'info', 0);
+  try {
+    const r = await api.get(`/vms/${vmId}/ip`);
+    t?.remove();
+    showToast('IP: ' + (r.data?.ip||'Unknown'), r.data?.ip && r.data.ip !== 'VM is stopped' ? 'success' : 'warning');
+  } catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function testRdp(vmId) {
+  const t = showToast('Testing RDP…', 'info', 0);
+  try {
+    const r = await api.get(`/vms/${vmId}/rdp/test`);
+    t?.remove();
+    const d = r.data;
+    showToast(d.reachable ? `RDP OK: ${d.ip}:${d.port} (${d.time_ms}ms)` : `RDP unreachable: ${d.ip}:${d.port} — ${d.error}`, d.reachable ? 'success' : 'danger');
+  } catch (e) { t?.remove(); showToast('Test failed', 'danger'); }
+}
+
+async function disableLockout(vmId) {
+  if (!await confirm2('Disable Account Lockout', 'Set lockout threshold to 0 on the VM?')) return;
+  const t = showToast('Applying…', 'info', 0);
+  try { await api.post(`/vms/${vmId}/disable_lockout`); t?.remove(); showToast('Lockout disabled', 'success'); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function enableRdp(vmId) {
+  if (!await confirm2('Enable RDP', 'Enable Remote Desktop and open firewall rules?')) return;
+  const t = showToast('Enabling RDP…', 'info', 0);
+  try { await api.post(`/vms/${vmId}/rdp/enable`); t?.remove(); showToast('RDP enabled', 'success'); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function disableNla(vmId) {
+  if (!await confirm2('Disable NLA', 'Disable Network Level Authentication for RDP?')) return;
+  const t = showToast('Disabling NLA…', 'info', 0);
+  try { await api.post(`/vms/${vmId}/rdp/disable_nla`); t?.remove(); showToast('NLA disabled', 'success'); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function setDhcp(vmId) {
+  if (!await confirm2('Set DHCP', 'Reset NIC to DHCP for IP and DNS?')) return;
+  const t = showToast('Setting DHCP…', 'info', 0);
+  try { await api.post(`/vms/${vmId}/network/dhcp`); t?.remove(); showToast('NIC set to DHCP', 'success'); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function enablePing(vmId) {
+  const t = showToast('Adding ICMP rule…', 'info', 0);
+  try { await api.post(`/vms/${vmId}/network/enable_ping`); t?.remove(); showToast('Ping allowed', 'success'); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function scheduleReboot(vmId, enable) {
+  const time = document.getElementById(`rebootTime-${vmId}`)?.value || '04:00';
+  const t = showToast((enable?'Enabling':'Disabling')+' reboot…', 'info', 0);
+  try { await api.post(`/vms/${vmId}/schedule/reboot`, { time, enable }); t?.remove(); showToast('Schedule updated', 'success'); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+/* ── SNAPSHOTS ── */
+function openSnapshotModal(vmId) {
+  activeSnapshotVmId = vmId;
+  document.getElementById('snapshotName').value = '';
+  document.getElementById('snapshotList').innerHTML = `<div style="color:var(--text3);font-size:13px;padding:8px 0;"><i class="fas fa-circle-notch fa-spin"></i> Loading…</div>`;
+  openModal('snapshotModal');
+  loadSnapshots(vmId);
+}
+
+async function loadSnapshots(vmId) {
+  try {
+    const r = await api.get(`/vms/${vmId}/snapshots`);
+    const el = document.getElementById('snapshotList');
+    if (!r.data.length) { el.innerHTML = '<div class="text-muted text-sm">No snapshots found.</div>'; return; }
+    el.innerHTML = r.data.map(s => `
+      <div class="snap-item">
+        <i class="fas fa-camera" style="color:var(--accent);font-size:12px;"></i>
+        <span class="snap-name">${s}</span>
+        <button class="btn btn-warning btn-xs" onclick="revertSnapshot(${vmId},'${s}')" title="Revert"><i class="fas fa-undo"></i></button>
+        <button class="btn btn-danger-soft btn-xs" onclick="deleteSnapshot(${vmId},'${s}')" title="Delete"><i class="fas fa-trash"></i></button>
+      </div>`).join('');
+  } catch (e) { document.getElementById('snapshotList').innerHTML = `<div style="color:var(--red);">Error: ${e.message}</div>`; }
+}
+
+async function createSnapshot() {
+  const name = document.getElementById('snapshotName').value.trim();
+  if (!name) return;
+  const btn = document.querySelector('#snapshotModal .btn-primary');
+  btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+  try {
+    await api.post(`/vms/${activeSnapshotVmId}/snapshots?name=${encodeURIComponent(name)}`);
+    document.getElementById('snapshotName').value = '';
+    showToast('Snapshot created', 'success');
+    setTimeout(() => loadSnapshots(activeSnapshotVmId), 2000);
+  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+  finally { btn.disabled=false; btn.innerHTML='<i class="fas fa-plus"></i> Create'; }
+}
+
+async function revertSnapshot(vmId, name) {
+  if (!await confirm2('Revert Snapshot', `Revert to "${name}"? Current state will be lost.`, true)) return;
+  const t = showToast('Reverting…', 'info', 0);
+  try { await api.post(`/vms/${vmId}/snapshots/revert?name=${encodeURIComponent(name)}`); t?.remove(); showToast('Reverted successfully', 'success'); loadVMs(); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function deleteSnapshot(vmId, name) {
+  if (!await confirm2('Delete Snapshot', `Delete "${name}"? This cannot be undone.`, true)) return;
+  try { await api.delete(`/vms/${vmId}/snapshots?name=${encodeURIComponent(name)}`); showToast('Snapshot deleted', 'success'); setTimeout(() => loadSnapshots(vmId), 2000); }
+  catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+/* ── RDP MODAL ── */
+function openRDPModal(vmId) {
+  const vm = currentVMs.find(v => v.id === vmId); if (!vm) return;
+  document.getElementById('rdpVmId').value  = vm.id;
+  document.getElementById('rdpIp').value    = vm.rdp_ip || 'remotedesktop.penguinhosting.host';
+  document.getElementById('rdpPort').value  = vm.rdp_port || 3389;
+  document.getElementById('rdpUser').value  = vm.rdp_username || 'Administrator';
+  document.getElementById('guestUser').value= vm.guest_username || vm.rdp_username || 'Administrator';
+  document.getElementById('guestPass').value= '';
+  document.getElementById('guestPassHelp').textContent = vm.guest_password ? '(password is set)' : '';
+  openModal('rdpModal');
+}
+
+async function saveRdpSettings() {
+  const id   = document.getElementById('rdpVmId').value;
+  const ip   = document.getElementById('rdpIp').value;
+  const port = document.getElementById('rdpPort').value;
+  const user = document.getElementById('rdpUser').value;
+  const gu   = document.getElementById('guestUser').value || user;
+  const gp   = document.getElementById('guestPass').value;
+  try {
+    await api.post(`/vms/${id}/rdp`, { rdp_ip:ip, rdp_port:parseInt(port), rdp_username:user, guest_username:gu, guest_password:gp||undefined });
+    closeModal('rdpModal');
+    showToast('Settings saved', 'success');
+    loadVMs();
+  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function changeVmPassword() {
+  const id = document.getElementById('rdpVmId').value;
+  const pw = document.getElementById('guestPass').value;
+  if (!pw) { showToast('Enter a new password first', 'warning'); return; }
+  const t = showToast('Changing password…', 'info', 0);
+  try { await api.post(`/vms/${id}/change_password`, { new_password:pw }); t?.remove(); showToast('Password changed', 'success'); }
+  catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+/* ── GUEST PASSWORD MODAL ── */
+function openGuestPasswordModal(vmId) {
+  document.getElementById('guestPassVmId').value = vmId;
+  document.getElementById('guestNewPassword').value = '';
+  document.getElementById('forceRestartCheck').checked = false;
+  openModal('guestPasswordModal');
+}
+
+async function submitGuestPassword() {
+  const id  = document.getElementById('guestPassVmId').value;
+  const pw  = document.getElementById('guestNewPassword').value;
+  const fr  = document.getElementById('forceRestartCheck').checked;
+  if (!pw) { showToast('Enter a password', 'warning'); return; }
+  if (fr && !await confirm2('Force Restart', 'This will hard-restart the VM. Unsaved work will be lost.', true)) return;
+  const t = showToast('Changing password…', 'info', 0);
+  try {
+    const r = await api.post(`/vms/${id}/change_password`, { new_password:pw, force_restart:fr });
+    t?.remove(); closeModal('guestPasswordModal'); showToast(r.data.message, 'success');
+  } catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+/* ── EXPIRATION MODAL ── */
+function openExpirationModal(vmId) {
+  const vm = currentVMs.find(v => v.id === vmId); if (!vm) return;
+  document.getElementById('expirationVmId').value = vmId;
+  if (vm.expiration_date) {
+    const d = new Date(vm.expiration_date);
+    document.getElementById('expirationDate').value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  } else { document.getElementById('expirationDate').value = ''; }
+  openModal('expirationModal');
+}
+
+async function saveExpiration() {
+  const id = document.getElementById('expirationVmId').value;
+  const ds = document.getElementById('expirationDate').value;
+  try {
+    await api.put(`/admin/vms/${id}`, { expiration_date: ds ? new Date(ds).toISOString() : null });
+    closeModal('expirationModal'); showToast('Expiration updated', 'success'); loadVMs();
+  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+/* ── REINSTALL MODAL ── */
+function openReinstallModal(vmId) {
+  document.getElementById('reinstallVmId').value = vmId;
+  document.getElementById('reinstallConfirmInput').value = '';
+  openModal('reinstallModal');
+}
+
+async function submitReinstall() {
+  const id   = document.getElementById('reinstallVmId').value;
+  const conf = document.getElementById('reinstallConfirmInput').value;
+  if (conf !== 'REINSTALL') { showToast('Type REINSTALL to confirm', 'warning'); return; }
+  const t = showToast('Starting reinstall…', 'info', 0);
+  try {
+    const r = await api.post(`/vms/${id}/reinstall`);
+    t?.remove(); closeModal('reinstallModal'); showToast(r.data.message, 'success');
+  } catch (e) { t?.remove(); showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+/* ── PROFILE ── */
+async function saveWebhooks() {
+  try {
+    await api.patch('/auth/me', {
+      discord_webhook_url:    document.getElementById('profileWebhookUrl').value    || null,
+      discord_webhook_public: document.getElementById('profileWebhookPublic').value || null
+    });
+    showToast('Webhooks saved', 'success');
+  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+async function changeAccountPassword() {
+  const cur = document.getElementById('currentPassword').value;
+  const nw  = document.getElementById('newPassword').value;
+  if (!cur || !nw) { showToast('Fill in both password fields', 'warning'); return; }
+  try {
+    await api.post('/auth/me/password', { current_password:cur, new_password:nw });
+    closeModal('profileModal'); showToast('Password updated', 'success');
+    document.getElementById('currentPassword').value = '';
+    document.getElementById('newPassword').value = '';
+  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
+}
+
+/* ── VNC ── */
+async function openVNC(vmId) {
+  openModal('vncModal');
+  const status  = document.getElementById('vnc-status');
+  const pill    = document.getElementById('vncPill');
+  const container = document.getElementById('vnc-container');
+  container.innerHTML = '';
+  status.style.display = 'block';
+  status.textContent = 'Connecting…';
+  pill.className = 'badge badge-yellow';
+  pill.textContent = 'Connecting';
+
+  try {
+    if (!window.RFB) throw new Error('noVNC not loaded');
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    rfb = new window.RFB(container, `${protocol}://${location.host}/vms/${vmId}/vnc`);
+
+    const applyQ = l => { if (!rfb) return; rfb.qualityLevel = l==='high'?8:l==='low'?3:6; rfb.compressionLevel = l==='high'?2:l==='low'?9:6; };
+    const applyFit = f => { if (!rfb) return; rfb.scaleViewport = f; rfb.resizeSession = false; };
+
+    const savedQ = localStorage.getItem('vncQ')||'medium';
+    const savedF = localStorage.getItem('vncF') !== '0';
+    document.getElementById('vncQuality').value = savedQ;
+    document.getElementById('vncFitWidth').checked = savedF;
+    applyQ(savedQ); applyFit(savedF);
+
+    document.getElementById('vncQuality').onchange = e => { applyQ(e.target.value); localStorage.setItem('vncQ',e.target.value); };
+    document.getElementById('vncFitWidth').onchange = e => { applyFit(e.target.checked); localStorage.setItem('vncF',e.target.checked?'1':'0'); };
+    document.getElementById('vncResetBtn').onclick = () => { document.getElementById('vncQuality').value='medium'; document.getElementById('vncFitWidth').checked=true; applyQ('medium'); applyFit(true); };
+    document.getElementById('vncCAD').onclick = () => rfb?.sendCtrlAltDel();
+    if (!isAdmin) document.getElementById('vncCAD').style.display = 'none';
+
+    rfb.addEventListener('connect', () => { status.style.display='none'; pill.className='badge badge-green'; pill.textContent='Connected'; });
+    rfb.addEventListener('disconnect', e => { status.style.display='block'; status.textContent='Disconnected'; pill.className='badge badge-red'; pill.textContent='Disconnected'; });
+  } catch (e) { status.textContent = 'Error: '+e.message; }
+}
+
+document.getElementById('vncModal').addEventListener('click', e => {
+  if (e.target.closest('.modal-close') || e.target === e.currentTarget) { if (rfb) { rfb.disconnect(); rfb = null; } }
+});
+
+/* ── PASSWORD BUTTONS ── */
+function genPassword(len=20) {
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()-_=+';
+  const arr=new Uint32Array(len); crypto.getRandomValues(arr);
+  return Array.from(arr).map(x=>chars[x%chars.length]).join('');
+}
+
+function setupPasswordButtons() {
+  const pairs = [
+    ['guestPass',       'gpShow',  'gpGen',  'gpCopy'],
+    ['guestNewPassword','gnpShow', 'gnpGen', 'gnpCopy'],
+  ];
+  pairs.forEach(([inputId, showId, genId, copyId]) => {
+    const inp  = document.getElementById(inputId);
+    const show = document.getElementById(showId);
+    const gen  = document.getElementById(genId);
+    const copy = document.getElementById(copyId);
+    if (show && inp) show.addEventListener('click', () => {
+      const s = inp.type==='password'; inp.type=s?'text':'password';
+      show.innerHTML = `<i class="fas fa-eye${s?'-slash':''}"></i>`;
+    });
+    if (gen && inp)  gen.addEventListener('click', () => { const p=genPassword(); inp.value=p; navigator.clipboard.writeText(p).catch(()=>{}); showToast('Password generated & copied','success'); });
+    if (copy && inp) copy.addEventListener('click', () => { if(inp.value) navigator.clipboard.writeText(inp.value).then(()=>showToast('Copied','success')).catch(()=>showToast('Copy failed','danger')); });
+  });
+}
+
+function scrollToTab(id) {
+  const el = document.getElementById('tab-'+id);
+  if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+</script>
+{% endblock %}
