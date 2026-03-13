@@ -6,16 +6,7 @@ from app.services.nat_service import nat_service
 from app.models.user import User, Role
 from app.models.port_mapping import PortMapping
 from app.models.vm import VM
-from app.models.audit import AuditLog
 from app.routers.auth import get_current_active_user, get_session
-
-def log_network_action(session, user_id, action, details):
-    try:
-        entry = AuditLog(user_id=user_id, action=action, details=details)
-        session.add(entry)
-        session.commit()
-    except Exception:
-        pass
 
 
 router = APIRouter(prefix="/network", tags=["network"])
@@ -26,7 +17,6 @@ class ForwardingRule(BaseModel):
     guest_ip: str
     guest_port: int
     vm_id: Optional[int] = None
-    name: Optional[str] = None
 
 class DeleteRule(BaseModel):
     protocol: str
@@ -58,7 +48,7 @@ def get_forwarding_rules(
             vms = session.exec(select(VM).where(VM.id.in_(vm_ids))).all()
             vm_map = {v.id: v.name for v in vms}
 
-        # Enrich rules with VM name and description
+        # Enrich rules with VM name
         for protocol in ['tcp', 'udp']:
             for rule in rules[protocol]:
                 key = (protocol, rule['host_port'])
@@ -66,8 +56,6 @@ def get_forwarding_rules(
                     mapping = mapping_dict[key]
                     if mapping.vm_id and mapping.vm_id in vm_map:
                         rule['vm_name'] = vm_map[mapping.vm_id]
-                        if mapping.description:
-                            rule['vm_name'] += f" ({mapping.description})"
                     elif mapping.description:
                         rule['vm_name'] = mapping.description
                 
@@ -106,57 +94,19 @@ def add_forwarding_rule(
         
         if existing_mapping:
             existing_mapping.vm_id = rule.vm_id
-            existing_mapping.description = rule.name if not rule.vm_id else None
+            existing_mapping.description = None # Clear desc if using ID
             session.add(existing_mapping)
         else:
             new_mapping = PortMapping(
                 protocol=rule.protocol,
                 host_port=rule.host_port,
-                vm_id=rule.vm_id,
-                description=rule.name if not rule.vm_id else None
+                vm_id=rule.vm_id
             )
             session.add(new_mapping)
         
         session.commit()
-        log_network_action(session, current_user.id, "PORT_RULE_ADD",
-            f"{rule.protocol.upper()} {rule.host_port} -> {rule.guest_ip}:{rule.guest_port}" + (f" [{rule.name}]" if rule.name else ""))
+        
         return {"message": "Rule added successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-class RenameRule(BaseModel):
-    name: Optional[str] = None
-
-@router.patch("/forwarding/{protocol}/{host_port}")
-def rename_forwarding_rule(
-    protocol: str,
-    host_port: int,
-    body: RenameRule,
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
-):
-    if current_user.role != Role.ADMIN:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    try:
-        statement = select(PortMapping).where(
-            PortMapping.protocol == protocol,
-            PortMapping.host_port == host_port
-        )
-        mapping = session.exec(statement).first()
-        if mapping:
-            mapping.description = body.name
-            session.add(mapping)
-        else:
-            # Create a new mapping entry just for the description
-            mapping = PortMapping(
-                protocol=protocol,
-                host_port=host_port,
-                description=body.name
-            )
-            session.add(mapping)
-        session.commit()
-        return {"message": "Rule renamed successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -182,8 +132,7 @@ def delete_forwarding_rule(
         if mapping:
             session.delete(mapping)
             session.commit()
-        log_network_action(session, current_user.id, "PORT_RULE_DELETE",
-            f"{protocol.upper()} host port {host_port}")
+            
         return {"message": "Rule deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -7,12 +7,12 @@ class Settings(BaseSettings):
     # Format: mysql+pymysql://<user>:<password>@<host>:<port>/<db_name>
     DATABASE_URL: str = "mysql+pymysql://user:password@localhost:3307/vm_control"
     
-    # CRITICAL: This key MUST be static. If it changes, the deterministic service account passwords will change,
-    # and the system will lose access to existing VMs.
+    # CRITICAL: This key MUST be static and secret. If it changes, all active sessions are invalidated.
+    # Set this in your .env file — never use the default in production!
     SECRET_KEY: str = "CHANGE_ME_TO_A_SECURE_RANDOM_STRING"
     
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 hours — 30 min was too short for a hosting panel
     VMRUN_PATH: str = r"C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe"
     # Placeholder - User must update this!
     DISCORD_WEBHOOK_URL: str = ""

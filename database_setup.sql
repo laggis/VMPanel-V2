@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS vm (
     expiration_date DATETIME DEFAULT NULL,
     
     -- RDP Settings
-    rdp_ip VARCHAR(255) DEFAULT 'remotedesktop.penguinhosting.host',
+    rdp_ip VARCHAR(255) DEFAULT 'LocalHost',
     rdp_port INT DEFAULT 3389,
     rdp_username VARCHAR(255) DEFAULT 'Administrator',
     

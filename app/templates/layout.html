@@ -1,67 +1,200 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <title>Control Panel</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/style.css?v=10">
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VM Control Panel</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@700;900&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Bootstrap base -->
+    <link id="theme-css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/darkly/bootstrap.min.css">
+    <script>
+        (function() {
+            const themeLink = document.getElementById('theme-css');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+            function getStoredTheme() { return localStorage.getItem('theme'); }
+            function setStoredTheme(theme) { localStorage.setItem('theme', theme); }
+            function updateTheme(theme) {
+                const bootswatchTheme = theme === 'dark' ? 'darkly' : 'zephyr';
+                themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/${bootswatchTheme}/bootstrap.min.css`;
+                document.body.classList.remove('light-mode', 'dark-mode');
+                document.body.classList.add(theme + '-mode');
+                document.documentElement.setAttribute('data-bs-theme', theme);
+                updateIcon(theme);
+            }
+            function updateIcon(theme) {
+                const icon = document.getElementById('theme-icon');
+                if (icon) {
+                    icon.classList.toggle('fa-sun', theme === 'dark');
+                    icon.classList.toggle('fa-moon', theme !== 'dark');
+                }
+            }
+            window.toggleTheme = function() {
+                let current = getStoredTheme() || (prefersDark.matches ? 'dark' : 'light');
+                const next = current === 'dark' ? 'light' : 'dark';
+                setStoredTheme(next);
+                updateTheme(next);
+            };
+            const stored = getStoredTheme();
+            const initial = stored || (prefersDark.matches ? 'dark' : 'light');
+            const bt = initial === 'dark' ? 'darkly' : 'zephyr';
+            themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.0/dist/${bt}/bootstrap.min.css`;
+            document.addEventListener('DOMContentLoaded', () => updateTheme(initial));
+            prefersDark.addEventListener('change', (e) => {
+                if (!getStoredTheme()) updateTheme(e.matches ? 'dark' : 'light');
+            });
+        })();
+    </script>
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Custom Styles -->
+    <link href="/static/css/style.css?v=7" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
-<div id="toast-area" class="toast-area"></div>
 
-{% block content %}{% endblock %}
+    <!-- ════════════════════════════════════════════════════════
+         LEFT SIDEBAR
+    ════════════════════════════════════════════════════════ -->
+    <aside class="sidebar" id="sidebar">
 
-<script>
-const token = localStorage.getItem('token');
-if (!token && !['/', '/login'].includes(window.location.pathname)) {
-  window.location.href = '/login';
-}
+        <!-- Logo / Brand -->
+        <div class="sidebar-logo">
+            <div class="sidebar-logo-icon"><i class="fas fa-server"></i></div>
+            <div class="sidebar-logo-text">
+                <div class="sidebar-logo-title">VM Panel</div>
+                <div class="sidebar-logo-sub">// CONTROL v1</div>
+            </div>
+            <div class="sidebar-online-dot"></div>
+        </div>
 
-const api = axios.create({ baseURL: '/', headers: { 'Authorization': 'Bearer ' + token } });
-api.interceptors.response.use(r => r, err => {
-  if (err.response?.status === 401) { localStorage.removeItem('token'); window.location.href = '/login'; }
-  return Promise.reject(err);
-});
+        <!-- Navigation -->
+        <nav class="sidebar-nav">
+            <div class="sidebar-label">Navigation</div>
 
-function logout() { localStorage.removeItem('token'); window.location.href = '/login'; }
+            <a class="sidebar-link active" href="/dashboard">
+                <i class="fas fa-cubes"></i>
+                <span>Instances</span>
+            </a>
 
-function showToast(msg, type = 'info', duration = 4500) {
-  const area = document.getElementById('toast-area');
-  const icons = { success:'fa-check-circle', danger:'fa-times-circle', warning:'fa-exclamation-triangle', info:'fa-info-circle' };
-  const t = document.createElement('div');
-  t.className = `toast toast-${type}`;
-  t.innerHTML = `<i class="fas ${icons[type]||icons.info} toast-ico"></i><span class="toast-msg">${msg}</span><button class="toast-x" onclick="this.parentElement.remove()"><i class="fas fa-times"></i></button>`;
-  area.appendChild(t);
-  if (duration > 0) setTimeout(() => t?.remove(), duration);
-  return t;
-}
+            <a class="sidebar-link" id="sideAdminLink" href="/admin" style="display:none;">
+                <i class="fas fa-cogs"></i>
+                <span>Admin Panel</span>
+            </a>
 
-function openModal(id) { const e = document.getElementById(id); if(e){e.classList.add('open');document.body.style.overflow='hidden';} }
-function closeModal(id) { const e = document.getElementById(id); if(e){e.classList.remove('open');document.body.style.overflow='';} }
-document.addEventListener('click', e => { if(e.target.classList.contains('modal-ov')) closeModal(e.target.id); });
-document.addEventListener('keydown', e => { if(e.key==='Escape') document.querySelectorAll('.modal-ov.open').forEach(m=>closeModal(m.id)); });
+            <div class="sidebar-label" style="margin-top:20px;">Account</div>
 
-function confirm2(title, msg, dangerous=false) {
-  return new Promise(resolve => {
-    const id = 'conf_' + Date.now();
-    const el = document.createElement('div');
-    el.className = 'modal-ov open'; el.id = id;
-    el.innerHTML = `<div class="modal-box" style="max-width:340px;text-align:center;padding:28px;">
-      <div style="font-size:28px;margin-bottom:12px;">${dangerous?'⚠️':'❓'}</div>
-      <div style="font-size:14.5px;font-weight:700;margin-bottom:8px;">${title}</div>
-      <div style="font-size:12.5px;color:var(--text2);margin-bottom:20px;line-height:1.6;">${msg}</div>
-      <div style="display:flex;gap:8px;justify-content:center;">
-        <button class="btn btn-ghost" onclick="document.getElementById('${id}').remove();window['__r${id}'](false)">Cancel</button>
-        <button class="btn ${dangerous?'btn-danger':'btn-primary'}" onclick="document.getElementById('${id}').remove();window['__r${id}'](true)">Confirm</button>
-      </div></div>`;
-    document.body.appendChild(el);
-    window[`__r${id}`] = resolve;
-  });
-}
-</script>
-{% block scripts %}{% endblock %}
+            <a class="sidebar-link" href="#" onclick="openProfileModal(); return false;">
+                <i class="fas fa-user-circle"></i>
+                <span>Profile</span>
+            </a>
+
+            <a class="sidebar-link" href="#" onclick="toggleTheme(); return false;">
+                <i id="theme-icon" class="fas fa-sun"></i>
+                <span>Toggle Theme</span>
+            </a>
+
+            <a class="sidebar-link sidebar-link-danger" href="#" onclick="logout(); return false;">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Logout</span>
+            </a>
+        </nav>
+
+        <!-- User pill at bottom -->
+        <div class="sidebar-user">
+            <div class="sidebar-user-avatar" id="sidebarAvatar">U</div>
+            <div class="sidebar-user-info">
+                <div class="sidebar-user-name" id="sidebarUsername">Loading...</div>
+                <div class="sidebar-user-role" id="sidebarRole">member</div>
+            </div>
+        </div>
+
+    </aside>
+
+    <!-- ════════════════════════════════════════════════════════
+         MAIN CONTENT AREA
+    ════════════════════════════════════════════════════════ -->
+    <main class="main-content" id="mainContent">
+        <div class="main-inner">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Toast -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1090;">
+        <div id="mainToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div id="mainToastBody" class="toast-body"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global Auth Check
+        const token = localStorage.getItem('token');
+        if (!token && window.location.pathname !== '/login' && window.location.pathname !== '/') {
+            window.location.href = '/login';
+        }
+
+        const api = axios.create({
+            baseURL: '/',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+
+        api.interceptors.response.use(response => response, error => {
+            if (error.response && error.response.status === 401) {
+                localStorage.removeItem('token');
+                window.location.href = '/login';
+            }
+            return Promise.reject(error);
+        });
+
+        function logout() {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        }
+
+        function showToast(message, type, autohide = true) {
+            var toastEl = document.getElementById('mainToast');
+            var bodyEl  = document.getElementById('mainToastBody');
+            if (!toastEl || !bodyEl) return;
+            bodyEl.textContent = message;
+            ['success','danger','warning','info'].forEach(t => toastEl.classList.remove('text-bg-' + t));
+            toastEl.classList.add('text-bg-' + (type || 'success'));
+            var existing = bootstrap.Toast.getInstance(toastEl);
+            if (existing) existing.dispose();
+            new bootstrap.Toast(toastEl, { autohide, delay: 5000 }).show();
+        }
+
+        // Populate sidebar user pill when auth data is available
+        window.setSidebarUser = function(username, role) {
+            var avatar   = document.getElementById('sidebarAvatar');
+            var nameEl   = document.getElementById('sidebarUsername');
+            var roleEl   = document.getElementById('sidebarRole');
+            var adminLnk = document.getElementById('sideAdminLink');
+            if (avatar)   avatar.textContent  = (username || 'U')[0].toUpperCase();
+            if (nameEl)   nameEl.textContent   = username || 'User';
+            if (roleEl)   roleEl.textContent   = role     || 'member';
+            if (adminLnk && role === 'admin')  adminLnk.style.display = 'flex';
+        };
+
+        // Mark active sidebar link based on current path
+        (function() {
+            var path = window.location.pathname;
+            document.querySelectorAll('.sidebar-link[href]').forEach(function(link) {
+                try {
+                    var linkPath = new URL(link.href, location.origin).pathname;
+                    if (linkPath !== '/' && path.startsWith(linkPath)) {
+                        document.querySelectorAll('.sidebar-link').forEach(function(l) { l.classList.remove('active'); });
+                        link.classList.add('active');
+                    }
+                } catch(e) {}
+            });
+        })();
+    </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

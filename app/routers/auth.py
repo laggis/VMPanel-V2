@@ -7,9 +7,29 @@ from app.models.user import User, Role
 from app.core import security
 from app.core.config import settings
 from app.schemas import Token, TokenData, UserRead
+import time
+from collections import defaultdict
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+
+# Simple in-memory rate limiter for login attempts
+# Tracks: {ip: [timestamp, timestamp, ...]}
+_login_attempts: dict = defaultdict(list)
+_MAX_ATTEMPTS = 10   # max attempts
+_WINDOW_SECONDS = 60 # per minute
+
+def _check_rate_limit(ip: str):
+    now = time.time()
+    attempts = _login_attempts[ip]
+    # Remove attempts outside the window
+    _login_attempts[ip] = [t for t in attempts if now - t < _WINDOW_SECONDS]
+    if len(_login_attempts[ip]) >= _MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many login attempts. Try again in {_WINDOW_SECONDS} seconds."
+        )
+    _login_attempts[ip].append(now)
 
 def get_session():
     with Session(engine) as session:
@@ -46,31 +66,18 @@ async def get_current_admin_user(current_user: User = Depends(get_current_active
     return current_user
 
 @router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session), request: Request = None):
-    from app.models.audit import AuditLog
+async def login_for_access_token(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+    # Rate limit by IP
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
+    
     user = session.exec(select(User).where(User.username == form_data.username)).first()
     if not user or not security.verify_password(form_data.password, user.hashed_password):
-        # Log failed login attempt
-        try:
-            ip = request.client.host if request and request.client else "unknown"
-            fail_log = AuditLog(action="LOGIN_FAILED", details=f"Username: {form_data.username} | IP: {ip}")
-            session.add(fail_log)
-            session.commit()
-        except Exception:
-            pass
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # Log successful login
-    try:
-        ip = request.client.host if request and request.client else "unknown"
-        login_log = AuditLog(user_id=user.id, action="LOGIN_SUCCESS", details=f"IP: {ip}")
-        session.add(login_log)
-        session.commit()
-    except Exception:
-        pass
     access_token = security.create_access_token(subject=user.username)
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -78,9 +85,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
-from typing import Optional, List, Dict
+from typing import Optional
 from pydantic import BaseModel
-import json
 
 class PasswordChange(BaseModel):
     current_password: str
@@ -89,17 +95,6 @@ class PasswordChange(BaseModel):
 class ProfileUpdate(BaseModel):
     discord_webhook_url: Optional[str] = None
     discord_webhook_public: Optional[str] = None
-
-class SubUserCreate(BaseModel):
-    username: str
-    password: str
-    permissions: Optional[Dict[str, bool]] = None
-
-class SubUserRead(BaseModel):
-    id: int
-    username: str
-    is_active: bool
-    permissions: Optional[Dict[str, bool]] = None
 
 @router.patch("/me")
 async def update_user_profile(
@@ -132,40 +127,3 @@ async def change_password(
     session.add(current_user)
     session.commit()
     return {"message": "Password updated successfully"}
-
-@router.post("/subusers", response_model=SubUserRead)
-async def create_subuser(
-    sub: SubUserCreate,
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
-):
-    existing = session.exec(select(User).where(User.username == sub.username)).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    hashed_pwd = security.get_password_hash(sub.password)
-    perms_json = json.dumps(sub.permissions) if sub.permissions else None
-    new_user = User(
-        username=sub.username,
-        hashed_password=hashed_pwd,
-        role=Role.USER,
-        is_active=True,
-        parent_id=current_user.id,
-        permissions=perms_json
-    )
-    session.add(new_user)
-    session.commit()
-    session.refresh(new_user)
-    perms = json.loads(new_user.permissions) if new_user.permissions else None
-    return SubUserRead(id=new_user.id, username=new_user.username, is_active=new_user.is_active, permissions=perms)
-
-@router.get("/subusers", response_model=List[SubUserRead])
-async def list_subusers(
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
-):
-    subs = session.exec(select(User).where(User.parent_id == current_user.id)).all()
-    results: List[SubUserRead] = []
-    for u in subs:
-        perms = json.loads(u.permissions) if u.permissions else None
-        results.append(SubUserRead(id=u.id, username=u.username, is_active=u.is_active, permissions=perms))
-    return results

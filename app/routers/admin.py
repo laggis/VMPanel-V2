@@ -41,28 +41,6 @@ async def get_system_stats():
     # Network
     net = psutil.net_io_counters()
     
-    # Port rule counts
-    from app.services.nat_service import nat_service
-    from app.models.port_mapping import PortMapping
-    from sqlmodel import Session as Sess
-    port_rules = {"tcp": 0, "udp": 0, "total": 0}
-    try:
-        rules = nat_service.get_rules()
-        port_rules["tcp"] = len(rules.get("tcp", []))
-        port_rules["udp"] = len(rules.get("udp", []))
-        port_rules["total"] = port_rules["tcp"] + port_rules["udp"]
-    except Exception:
-        pass
-
-    # Per-NIC bandwidth (for VM bandwidth approximation)
-    net_per_nic = {}
-    try:
-        nic_counters = psutil.net_io_counters(pernic=True)
-        net_per_nic = {nic: {"sent": c.bytes_sent, "recv": c.bytes_recv, "packets_sent": c.packets_sent, "packets_recv": c.packets_recv}
-                       for nic, c in nic_counters.items()}
-    except Exception:
-        pass
-
     return {
         "cpu": cpu_percent,
         "ram": {
@@ -78,45 +56,8 @@ async def get_system_stats():
         "net": {
             "sent": net.bytes_sent,
             "recv": net.bytes_recv
-        },
-        "port_rules": port_rules,
-        "net_per_nic": net_per_nic
+        }
     }
-
-
-@router.post("/network/import")
-async def import_forwarding_rules(
-    rules: List[dict],
-    session: Session = Depends(get_session)
-):
-    from app.services.nat_service import nat_service
-    from app.models.port_mapping import PortMapping
-    added, skipped = 0, 0
-    for rule in rules:
-        try:
-            proto = rule.get("protocol","tcp").lower()
-            if proto not in ("tcp","udp"):
-                skipped += 1
-                continue
-            host_port = int(rule["host_port"])
-            guest_ip = rule["guest_ip"]
-            guest_port = int(rule["guest_port"])
-            name = rule.get("vm_name") or rule.get("name") or None
-            if name in ("-","—",""):
-                name = None
-            nat_service.add_forwarding_rule(proto, host_port, guest_ip, guest_port)
-            from sqlmodel import select as sel
-            existing = session.exec(sel(PortMapping).where(PortMapping.protocol==proto, PortMapping.host_port==host_port)).first()
-            if existing:
-                existing.description = name
-                session.add(existing)
-            else:
-                session.add(PortMapping(protocol=proto, host_port=host_port, description=name))
-            session.commit()
-            added += 1
-        except Exception:
-            skipped += 1
-    return {"added": added, "skipped": skipped}
 
 @router.get("/audit_logs", response_model=List[AuditLog])
 async def read_audit_logs(session: Session = Depends(get_session)):
@@ -126,13 +67,13 @@ async def read_audit_logs(session: Session = Depends(get_session)):
 @router.get("/scan_vms")
 async def scan_vms():
     """
-    Scans common directories for .vmx files.
+    Scans configured directories for .vmx files.
     """
-    # Common directories to search
     search_roots = [
         r"C:\Virtual Machines",
+        r"D:\Vms",
         os.path.expanduser(r"~\Documents\Virtual Machines"),
-        r"D:\Virtual Machines"
+        r"D:\Virtual Machines",  # keep as fallback
     ]
     
     found_vms = []
@@ -233,25 +174,8 @@ async def create_vm(vm: VMCreate, session: Session = Depends(get_session)):
     db_vm = session.exec(select(VM).where(VM.vmx_path == vm.vmx_path)).first()
     if db_vm:
         raise HTTPException(status_code=400, detail="VM path already registered")
-    path = vm.vmx_path
-    if path and not path.lower().endswith(".vmx"):
-        if os.path.isdir(path):
-            try:
-                for f in os.listdir(path):
-                    if f.lower().endswith(".vmx"):
-                        path = os.path.join(path, f)
-                        break
-            except PermissionError:
-                candidate = os.path.join(path, f"{os.path.basename(path)}.vmx")
-                if os.path.isfile(candidate):
-                    path = candidate
-                else:
-                    raise HTTPException(status_code=403, detail=f"Insufficient permission to access folder: {path}. Move VM to a shared folder (e.g., C:\\Virtual Machines) or grant Modify permissions to the app user.")
-    if not path or not os.path.isfile(path):
-        raise HTTPException(status_code=400, detail="vmx_path must be a valid .vmx file path")
-    new_vm_data = vm.model_dump()
-    new_vm_data["vmx_path"] = path
-    new_vm = VM(**new_vm_data)
+    
+    new_vm = VM.from_orm(vm)
     session.add(new_vm)
     session.commit()
     session.refresh(new_vm)
@@ -269,24 +193,14 @@ async def update_vm(vm_id: int, vm_update: VMUpdate, session: Session = Depends(
         raise HTTPException(status_code=404, detail="VM not found")
     
     vm_data = vm_update.dict(exclude_unset=True)
-    if "vmx_path" in vm_data:
-        path = vm_data["vmx_path"]
-        if path and not path.lower().endswith(".vmx"):
-            if os.path.isdir(path):
-                try:
-                    for f in os.listdir(path):
-                        if f.lower().endswith(".vmx"):
-                            path = os.path.join(path, f)
-                            break
-                except PermissionError:
-                    candidate = os.path.join(path, f"{os.path.basename(path)}.vmx")
-                    if os.path.isfile(candidate):
-                        path = candidate
-                    else:
-                        raise HTTPException(status_code=403, detail=f"Insufficient permission to access folder: {path}. Move VM to a shared folder (e.g., C:\\Virtual Machines) or grant Modify permissions to the app user.")
-        if not path or not os.path.isfile(path):
-            raise HTTPException(status_code=400, detail="vmx_path must be a valid .vmx file path")
-        vm_data["vmx_path"] = path
+
+    # Guard: if vmx_path is being changed, ensure it doesn't collide with another VM
+    # Use case-insensitive compare — Windows paths are case-insensitive
+    if "vmx_path" in vm_data and vm_data["vmx_path"].lower() != vm.vmx_path.lower():
+        conflict = session.exec(select(VM).where(VM.vmx_path == vm_data["vmx_path"])).first()
+        if conflict:
+            raise HTTPException(status_code=400, detail=f"VMX path is already registered to VM '{conflict.name}' (ID {conflict.id})")
+
     for key, value in vm_data.items():
         setattr(vm, key, value)
     

@@ -48,9 +48,7 @@ class VMRead(VMBase):
     rdp_username: Optional[str] = "Administrator"
     internal_ip: Optional[str] = None
     guest_username: Optional[str] = None
-    # Do not return guest_password for security reasons usually, but user needs to see if it's set? 
-    # Or maybe return it if they are the owner. For now let's return it so they can edit it.
-    guest_password: Optional[str] = None
+    # guest_password intentionally excluded from API responses (security)
     expiration_date: Optional[datetime] = None
     
     # Task Tracking
@@ -76,3 +74,35 @@ class VMStaticIPRequest(BaseModel):
     ip: str
     gateway: str
     dns: List[str] = ["1.1.1.1", "1.0.0.1"]
+
+
+# ── Scheduled Tasks ────────────────────────────────────────────────────────────
+from app.models.scheduled_task import TaskAction, TaskStatus  # noqa: E402
+
+
+class ScheduledTaskCreate(BaseModel):
+    vm_id: int
+    action: TaskAction
+    run_at: datetime
+    # Required only when action == "snapshot"
+    snapshot_name: Optional[str] = None
+
+
+class ScheduledTaskRead(BaseModel):
+    id: int
+    vm_id: int
+    created_by: int
+    action: TaskAction
+    snapshot_name: Optional[str] = None
+    run_at: datetime
+    status: TaskStatus
+    result_message: Optional[str] = None
+    created_at: datetime
+    executed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ScheduledTaskUpdate(BaseModel):
+    run_at: Optional[datetime] = None
+    snapshot_name: Optional[str] = None

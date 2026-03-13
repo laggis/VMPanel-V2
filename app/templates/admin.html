@@ -1,1066 +1,1097 @@
 {% extends "layout.html" %}
+
 {% block content %}
-<div class="app-wrap">
+<script>
+    // Mark admin link active in sidebar
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
+        var al = document.getElementById('sideAdminLink');
+        if (al) { al.classList.add('active'); al.style.display = 'flex'; }
+    });
+</script>
 
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <a class="sidebar-logo" href="/admin">
-      <div class="logo-mark"><i class="fas fa-server"></i></div>
-      <span class="logo-text">Control<em>Panel</em></span>
-    </a>
-    <nav class="sidebar-nav">
-      <div class="nav-section-label">Navigation</div>
-      <a class="nav-link" href="/dashboard"><i class="fas fa-th-large"></i> Dashboard</a>
-      <a class="nav-link active" href="/admin"><i class="fas fa-shield-alt"></i> Admin Panel</a>
-      <div class="nav-section-label" style="margin-top:10px;">Admin</div>
-      <button class="nav-link" onclick="switchTab('users')"><i class="fas fa-users"></i> Users</button>
-      <button class="nav-link" onclick="switchTab('vms')"><i class="fas fa-server"></i> VPS Machines</button>
-      <button class="nav-link" onclick="switchTab('network')"><i class="fas fa-network-wired"></i> Network</button>
-      <button class="nav-link" onclick="switchTab('logs')"><i class="fas fa-history"></i> Audit Logs</button>
-    </nav>
-    <div class="sidebar-bottom">
-      <div class="sidebar-user">
-        <div class="user-avatar" id="adminAvatar">A</div>
-        <span class="user-name" id="adminUsername">Admin</span>
-      </div>
-      <button class="nav-link" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Sign Out</button>
-    </div>
-  </aside>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-cogs"></i> Admin Panel</h2>
+</div>
 
-  <!-- Main -->
-  <div class="main">
-    <header class="topbar">
-      <span class="topbar-title" id="topbarTitle">Admin Panel</span>
-      <div class="topbar-actions" id="topbarActions"></div>
-    </header>
-
-    <div class="page-body">
-
-      <!-- STAT CARDS -->
-      <div class="stat-grid" id="statGrid">
-        <div class="stat-card" style="--stat-clr:var(--accent)">
-          <div class="stat-lbl">CPU Usage</div>
-          <div class="stat-val" id="cpuVal">--%</div>
-          <div class="stat-bar"><div class="stat-bar-fill" id="cpuBar" style="width:0%"></div></div>
-        </div>
-        <div class="stat-card" style="--stat-clr:var(--green)">
-          <div class="stat-lbl">RAM Usage</div>
-          <div class="stat-val" id="ramVal">--%</div>
-          <div class="stat-sub" id="ramText">-- / -- GB</div>
-          <div class="stat-bar"><div class="stat-bar-fill" id="ramBar" style="width:0%;background:var(--green)"></div></div>
-        </div>
-        <div class="stat-card" style="--stat-clr:var(--cyan)">
-          <div class="stat-lbl">Disk Usage</div>
-          <div class="stat-val" id="diskVal">--%</div>
-          <div class="stat-sub" id="diskText">-- / -- GB</div>
-          <div class="stat-bar"><div class="stat-bar-fill" id="diskBar" style="width:0%;background:var(--cyan)"></div></div>
-        </div>
-        <div class="stat-card" style="--stat-clr:var(--purple)">
-          <div class="stat-lbl">Network I/O</div>
-          <div class="stat-val" style="font-size:18px;display:flex;flex-direction:column;gap:2px;">
-            <span><i class="fas fa-arrow-down" style="color:var(--cyan);font-size:13px;"></i> <span id="netIn">--</span></span>
-            <span><i class="fas fa-arrow-up" style="color:var(--yellow);font-size:13px;"></i> <span id="netOut">--</span></span>
-          </div>
-          <div class="stat-sub" id="netTotal">Total: --</div>
-        </div>
-        <div class="stat-card" style="--stat-clr:#f97316">
-          <div class="stat-lbl">Port Rules</div>
-          <div class="stat-val" id="portRulesVal">--</div>
-          <div class="stat-sub" id="portRulesSub">TCP: -- | UDP: --</div>
-        </div>
-      </div>
-
-      <!-- TAB CONTENT -->
-      <!-- USERS TAB -->
-      <div class="tab-pane active" id="tab-users">
-        <div class="card mb-4">
-          <div class="card-hd">
-            <span class="card-hd-title"><i class="fas fa-user-plus"></i> Create New User</span>
-          </div>
-          <div class="card-bd">
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-items:end;">
-              <div>
-                <label class="input-label">Username</label>
-                <input type="text" id="newUsername" class="input" placeholder="username">
-              </div>
-              <div>
-                <label class="input-label">Password</label>
-                <input type="password" id="newPassword" class="input" placeholder="password">
-              </div>
-              <div>
-                <label class="input-label">Role</label>
-                <select id="newRole" class="select">
-                  <option value="user">User</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <div>
-                <label class="input-label">Discord Webhook <span class="text-muted text-xs">(optional)</span></label>
-                <input type="text" id="newWebhook" class="input" placeholder="https://discord.com/api/webhooks/…">
-              </div>
-              <div style="padding-top:20px;">
-                <button class="btn btn-primary btn-full" onclick="createUser()"><i class="fas fa-plus"></i> Create User</button>
-              </div>
+<!-- System Stats -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-primary">
+            <div class="card-header text-primary"><i class="fas fa-microchip"></i> CPU Usage</div>
+            <div class="card-body">
+                <h3 class="card-title" id="cpuVal">--%</h3>
+                <div class="progress">
+                    <div id="cpuBar" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
+                </div>
             </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-success">
+            <div class="card-header text-success"><i class="fas fa-memory"></i> RAM Usage</div>
+            <div class="card-body">
+                <h3 class="card-title" id="ramVal">--%</h3>
+                <p class="card-text small mb-1 text-muted" id="ramText">-- / -- GB</p>
+                <div class="progress">
+                    <div id="ramBar" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-info">
+            <div class="card-header text-info"><i class="fas fa-hdd"></i> Disk Usage</div>
+            <div class="card-body">
+                <h3 class="card-title" id="diskVal">--%</h3>
+                <p class="card-text small mb-1 text-muted" id="diskText">-- / -- GB</p>
+                <div class="progress">
+                    <div id="diskBar" class="progress-bar bg-info" role="progressbar" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-3 h-100 border-secondary">
+            <div class="card-header text-secondary"><i class="fas fa-network-wired"></i> Network</div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <span class="text-info"><i class="fas fa-arrow-down"></i> <span id="netIn">-- KB/s</span></span>
+                    <span class="text-warning"><i class="fas fa-arrow-up"></i> <span id="netOut">-- KB/s</span></span>
+                </div>
+                <hr class="my-2">
+                <small class="d-block text-muted">Total Recv: <span id="totalRecv">--</span></small>
+                <small class="d-block text-muted">Total Sent: <span id="totalSent">--</span></small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
+        <i class="fas fa-users"></i> User Management
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="vms-tab" data-bs-toggle="tab" data-bs-target="#vms" type="button" role="tab">
+        <i class="fas fa-server"></i> VPS Management
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab">
+        <i class="fas fa-history"></i> Audit Logs
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="network-tab" data-bs-toggle="tab" data-bs-target="#network" type="button" role="tab">
+        <i class="fas fa-network-wired"></i> Network
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="adminTabsContent">
+  <!-- Users Tab -->
+  <div class="tab-pane fade show active" id="users" role="tabpanel">
+    <div class="card border-primary mb-4">
+        <div class="card-header">Create New User</div>
+        <div class="card-body">
+            <form id="createUserForm" class="row g-3">
+                <div class="col-md-3">
+                    <input type="text" id="newUsername" placeholder="Username" class="form-control" required>
+                </div>
+                <div class="col-md-3">
+                    <input type="password" id="newPassword" placeholder="Password" class="form-control" required>
+                </div>
+                <div class="col-md-2">
+                    <select id="newRole" class="form-select">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="text" id="newWebhook" placeholder="Discord Webhook URL (Optional)" class="form-control">
+                </div>
+                <div class="col-md-12">
+                    <button type="submit" class="btn btn-primary w-100">Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div class="modal fade" id="editUserModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Edit User</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="editUserForm">
+                <input type="hidden" id="editUserId">
+                <div class="mb-3">
+                    <label class="form-label">Username</label>
+                    <input type="text" id="editUsername" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Password</label>
+                    <input type="password" id="editPassword" class="form-control" placeholder="Leave blank to keep current">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Role</label>
+                    <select id="editRole" class="form-select">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Discord Webhook URL</label>
+                    <input type="text" id="editWebhook" class="form-control" placeholder="https://discord.com/api/webhooks/...">
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
           </div>
         </div>
+      </div>
+    </div>
 
-        <div class="tbl-wrap">
-          <table class="tbl">
+    <div class="table-responsive">
+        <table class="table table-hover">
             <thead>
-              <tr>
-                <th>ID</th>
-                <th>Username</th>
-                <th>Role</th>
-                <th style="text-align:right;">Actions</th>
-              </tr>
+                <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Actions</th>
+                </tr>
             </thead>
             <tbody id="userTableBody">
-              <tr><td colspan="4" style="text-align:center;color:var(--text3);padding:30px;"><i class="fas fa-circle-notch fa-spin"></i> Loading…</td></tr>
+                <!-- Populated by JS -->
             </tbody>
-          </table>
+        </table>
+    </div>
+  </div>
+
+  <!-- VMs Tab -->
+  <div class="tab-pane fade" id="vms" role="tabpanel">
+    
+    <!-- Toolbar -->
+    <div class="d-flex justify-content-between mb-3">
+        <div>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#provisionVMModal">
+                <i class="fas fa-box-open"></i> Provision New VPS
+            </button>
+            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addVMModal">
+                <i class="fas fa-plus"></i> Register New VPS
+            </button>
+            <button class="btn btn-outline-secondary" onclick="loadVMs()">
+                <i class="fas fa-sync"></i> Refresh
+            </button>
+        </div>
+        <div>
+            <input type="text" id="vmSearch" class="form-control" placeholder="Search VMs..." onkeyup="filterVMs()">
+        </div>
+    </div>
+
+    <!-- Modal for Adding VM -->
+    <div class="modal fade" id="addVMModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Register New VPS</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="createVMForm">
+                <div class="mb-3">
+                    <label class="form-label">VM Name</label>
+                    <input type="text" id="vmName" placeholder="My Virtual Machine" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">VMX Path</label>
+                    <div class="vmx-picker-wrap" id="vmxPickerWrap">
+                        <div class="input-group">
+                            <input type="text" id="vmPath" autocomplete="off" placeholder="C:\Path\To\file.vmx" class="form-control" required
+                                oninput="vmxFilterDropdown(this.value)"
+                                onfocus="if(window._vmxPaths&&window._vmxPaths.length)vmxShowDropdown(this.value)"
+                                onkeydown="vmxKeyNav(event)">
+                            <button class="btn btn-secondary" type="button" onclick="scanVMs()" title="Scan for .vmx files" id="scanBtn">
+                                <i class="fas fa-radar" id="scanIcon"></i>
+                                <i class="fas fa-spinner fa-spin d-none" id="scanSpinner"></i>
+                            </button>
+                        </div>
+                        <div class="vmx-dropdown" id="vmxDropdown" style="display:none"></div>
+                        <small class="text-muted" id="vmxHint">Click <i class="fas fa-search"></i> to scan for .vmx files.</small>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Assign Owner</label>
+                    <select id="vmOwner" class="form-select">
+                        <option value="">-- No Owner --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Expiration Date</label>
+                    <input type="date" id="vmExpiration" class="form-control">
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Register VM</button>
+                </div>
+            </form>
+          </div>
         </div>
       </div>
+    </div>
 
-      <!-- VMS TAB -->
-      <div class="tab-pane" id="tab-vms">
-        <div class="filter-bar">
-          <input type="text" id="vmSearch" class="input" placeholder="Search VMs…" oninput="filterVMs()">
-          <button class="btn btn-primary btn-sm" onclick="openModal('addVMModal')"><i class="fas fa-plus"></i> Register VPS</button>
-          <button class="btn btn-accent-soft btn-sm" onclick="openModal('provisionVMModal')"><i class="fas fa-box-open"></i> Provision VPS</button>
-          <button class="btn btn-ghost btn-sm" onclick="loadVMs()"><i class="fas fa-sync"></i> Refresh</button>
+    <!-- Modal for Provisioning VM -->
+    <div class="modal fade" id="provisionVMModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Provision New VPS (From Template)</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="provisionVMForm">
+                <div class="mb-3">
+                    <label class="form-label">VM Name</label>
+                    <input type="text" id="provVmName" placeholder="Customer-VPS-01" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Assign Owner</label>
+                    <select id="provVmOwner" class="form-select" required>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Clone Type</label>
+                    <select id="provCloneType" class="form-select">
+                        <option value="linked">Linked Clone (Fast, Saves Space)</option>
+                        <option value="full">Full Clone (Independent, Slower)</option>
+                    </select>
+                    <small class="text-muted">Linked requires the Template to stay online. Full copies everything.</small>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">CPU Cores</label>
+                        <input type="number" id="provCpuCores" class="form-control" value="2" min="1" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">RAM (MB)</label>
+                        <input type="number" id="provRamMb" class="form-control" value="4096" min="1024" step="1024" required>
+                    </div>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> New VM will be created in <code>C:\Virtual Machines\Customers</code>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Provision VM</button>
+            </form>
+          </div>
         </div>
+      </div>
+    </div>
 
-        <div class="tbl-wrap">
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>VMX Path</th>
-                <th>Owner</th>
-                <th style="text-align:right;">Actions</th>
-              </tr>
+    <!-- Modal for Editing VM -->
+    <div class="modal fade" id="editVMModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Edit VPS</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="editVMForm">
+                <input type="hidden" id="editVMId">
+                <div class="mb-3">
+                    <label class="form-label">VM Name</label>
+                    <input type="text" id="editVMName" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">VMX Path</label>
+                    <input type="text" id="editVMPath" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Assign Owner</label>
+                    <select id="editVMOwner" class="form-select">
+                        <option value="">-- No Owner --</option>
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Internal IP (Static)</label>
+                    <input type="text" id="editVMInternalIP" class="form-control" placeholder="192.168.119.x">
+                    <small class="text-muted">Stored IP for reference. Use "Network Config" to apply changes to Guest.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Expiration Date</label>
+                    <input type="date" id="editVMExpiration" class="form-control">
+                </div>
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <button type="button" class="btn btn-warning" onclick="updateServiceAccount()">
+                        <i class="fas fa-tools"></i> Update Service Account (Fix Registry)
+                    </button>
+                </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Network Config Modal -->
+    <div class="modal fade" id="netConfigModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Network Configuration</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <form id="netConfigForm">
+                <input type="hidden" id="netConfigVmId">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> Settings are applied to Host DHCP. If VM is running, a <b>Reboot</b> may be required to take effect.
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Static IP Address</label>
+                    <input type="text" id="netStaticIP" class="form-control" placeholder="192.168.119.x" required>
+                    <small class="text-muted">Ensure this IP matches your Port Forwarding rules.</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Gateway</label>
+                    <input type="text" id="netGateway" class="form-control" placeholder="192.168.119.2" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">DNS Servers (Comma separated)</label>
+                    <input type="text" id="netDNS" class="form-control" value="8.8.8.8, 8.8.4.4">
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Apply Static IP</button>
+                </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Path</th>
+                    <th>Owner</th>
+                    <th>Actions</th>
+                </tr>
             </thead>
             <tbody id="vmTableBody">
-              <tr><td colspan="5" style="text-align:center;color:var(--text3);padding:30px;"><i class="fas fa-circle-notch fa-spin"></i> Loading…</td></tr>
+                <!-- Populated by JS -->
             </tbody>
-          </table>
-        </div>
-      </div>
+        </table>
+    </div>
+  </div>
 
-      <!-- NETWORK TAB -->
-      <div class="tab-pane" id="tab-network">
-
-        <!-- Add Rule Card -->
-        <div class="card mb-4">
-          <div class="card-hd">
-            <span class="card-hd-title"><i class="fas fa-plus-circle"></i> Add Port Forwarding Rule</span>
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;">
-              <input type="checkbox" id="rangeMode" onchange="toggleRangeMode()"> Port Range
-            </label>
-          </div>
-          <div class="card-bd">
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;align-items:end;">
-              <div>
-                <label class="input-label">VM <span class="text-muted text-xs">(optional)</span></label>
-                <select id="ruleVmId" class="select"><option value="">-- Select VM --</option></select>
-              </div>
-              <div>
-                <label class="input-label">Name <span class="text-muted text-xs">(optional)</span></label>
-                <input type="text" id="ruleName" class="input" placeholder="e.g. Minecraft Server">
-              </div>
-              <div>
-                <label class="input-label">Protocol</label>
-                <select id="ruleProtocol" class="select">
-                  <option value="tcp">TCP</option>
-                  <option value="udp">UDP</option>
-                  <option value="both">TCP + UDP</option>
-                </select>
-              </div>
-              <div id="singlePortWrap">
-                <label class="input-label">Host Port</label>
-                <input type="number" id="ruleHostPort" class="input" placeholder="8080" oninput="checkPortConflict(this.value, document.getElementById('ruleProtocol').value)">
-              </div>
-              <div id="rangePortWrap" style="display:none;">
-                <label class="input-label">Host Port Range</label>
-                <div style="display:flex;gap:6px;align-items:center;">
-                  <input type="number" id="rulePortStart" class="input" placeholder="25565">
-                  <span class="text-muted">–</span>
-                  <input type="number" id="rulePortEnd" class="input" placeholder="25570">
-                </div>
-              </div>
-              <div>
-                <label class="input-label">Guest IP</label>
-                <input type="text" id="ruleGuestIP" class="input" placeholder="192.168.119.128">
-              </div>
-              <div id="singleGuestPortWrap">
-                <label class="input-label">Guest Port</label>
-                <input type="number" id="ruleGuestPort" class="input" placeholder="80">
-              </div>
-              <div id="rangeGuestPortWrap" style="display:none;">
-                <label class="input-label">Guest Start Port</label>
-                <input type="number" id="ruleGuestPortStart" class="input" placeholder="25565">
-              </div>
-              <div style="padding-top:20px;">
-                <button class="btn btn-primary btn-full" onclick="addNetworkRule()"><i class="fas fa-plus"></i> Add Rule</button>
-              </div>
-            </div>
-            <div id="portConflictWarn" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;font-size:12px;color:var(--yellow);">
-              <i class="fas fa-exclamation-triangle"></i> <span id="portConflictMsg"></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Toolbar -->
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
-          <input type="text" id="ruleSearch" class="input" style="max-width:240px;" placeholder="🔍  Search rules…" oninput="filterRules()">
-          <button class="btn btn-ghost btn-sm" onclick="loadNetworkRules()"><i class="fas fa-sync"></i></button>
-          <button class="btn btn-ghost btn-sm" onclick="showBandwidth()"><i class="fas fa-chart-bar"></i> Bandwidth</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportRules('csv')"><i class="fas fa-file-csv"></i> CSV</button>
-          <button class="btn btn-ghost btn-sm" onclick="exportRules('json')"><i class="fas fa-file-code"></i> JSON</button>
-          <label class="btn btn-ghost btn-sm" style="cursor:pointer;" title="Import rules from JSON file">
-            <i class="fas fa-file-import"></i> Import
-            <input type="file" accept=".json" style="display:none;" onchange="importRules(this)">
-          </label>
-          <button class="btn btn-danger-soft btn-sm" id="bulkDeleteBtn" style="display:none;" onclick="bulkDelete()">
-            <i class="fas fa-trash"></i> Delete Selected (<span id="bulkCount">0</span>)
-          </button>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;margin-left:auto;">
-            <input type="checkbox" id="bulkModeToggle" onchange="toggleBulkMode()"> Select mode
-          </label>
-        </div>
-
-        <!-- Per-NIC Bandwidth -->
-        <div class="card mb-4" id="bandwidthCard" style="display:none;">
-          <div class="card-hd">
-            <span class="card-hd-title"><i class="fas fa-chart-bar"></i> Interface Bandwidth</span>
-            <button class="btn btn-ghost btn-xs" onclick="document.getElementById('bandwidthCard').style.display='none'"><i class="fas fa-times"></i></button>
-          </div>
-          <div class="card-bd" id="bandwidthBody" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;"></div>
-        </div>
-
-        <!-- Rules Tables -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-          <div>
-            <div style="font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px;">
-              <span class="badge badge-blue">TCP</span> TCP Rules
-              <span id="tcpCount" class="text-muted text-xs"></span>
-            </div>
-            <div class="tbl-wrap">
-              <table class="tbl">
-                <thead><tr>
-                  <th id="bulkThTcp" style="display:none;width:32px;padding:8px 6px;"><input type="checkbox" id="checkAllTcp" onchange="checkAll('tcp',this.checked)"></th>
-                  <th style="cursor:pointer;" onclick="sortRules('tcp','host_port')">Host Port <span id="sort_tcp_host_port">↕</span></th>
-                  <th style="cursor:pointer;" onclick="sortRules('tcp','target')">Target <span id="sort_tcp_target">↕</span></th>
-                  <th style="cursor:pointer;" onclick="sortRules('tcp','vm_name')">Name / VM <span id="sort_tcp_vm_name">↕</span></th>
-                  <th></th>
-                </tr></thead>
-                <tbody id="tcpRulesBody"></tbody>
-              </table>
-            </div>
-          </div>
-          <div>
-            <div style="font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px;">
-              <span class="badge badge-yellow">UDP</span> UDP Rules
-              <span id="udpCount" class="text-muted text-xs"></span>
-            </div>
-            <div class="tbl-wrap">
-              <table class="tbl">
-                <thead><tr>
-                  <th id="bulkThUdp" style="display:none;width:32px;padding:8px 6px;"><input type="checkbox" id="checkAllUdp" onchange="checkAll('udp',this.checked)"></th>
-                  <th style="cursor:pointer;" onclick="sortRules('udp','host_port')">Host Port <span id="sort_udp_host_port">↕</span></th>
-                  <th style="cursor:pointer;" onclick="sortRules('udp','target')">Target <span id="sort_udp_target">↕</span></th>
-                  <th style="cursor:pointer;" onclick="sortRules('udp','vm_name')">Name / VM <span id="sort_udp_vm_name">↕</span></th>
-                  <th></th>
-                </tr></thead>
-                <tbody id="udpRulesBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- LOGS TAB -->
-      <div class="tab-pane" id="tab-logs">
-        <div class="tbl-wrap">
-          <table class="tbl">
+  <!-- Logs Tab -->
+  <div class="tab-pane fade" id="logs" role="tabpanel">
+    <div class="table-responsive">
+        <table class="table table-hover table-striped">
             <thead>
-              <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Action</th>
-                <th>VM</th>
-                <th>Details</th>
-              </tr>
+                <tr>
+                    <th>Time</th>
+                    <th>User ID</th>
+                    <th>Action</th>
+                    <th>Target VM</th>
+                    <th>Details</th>
+                </tr>
             </thead>
             <tbody id="logsTableBody">
-              <tr><td colspan="5" style="text-align:center;color:var(--text3);padding:30px;"><i class="fas fa-circle-notch fa-spin"></i> Loading…</td></tr>
+                <!-- Populated by JS -->
             </tbody>
-          </table>
+        </table>
+    </div>
+  </div>
+
+  <!-- Network Tab -->
+  <div class="tab-pane fade" id="network" role="tabpanel">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card border-info">
+                <div class="card-header">Add Port Forwarding Rule</div>
+                <div class="card-body">
+                    <form id="addNetworkRuleForm" class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">VM (Optional)</label>
+                            <select id="ruleVmId" class="form-select">
+                                <option value="">-- Select VM --</option>
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Protocol</label>
+                            <select id="ruleProtocol" class="form-select">
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Host Port</label>
+                            <input type="number" id="ruleHostPort" class="form-control" placeholder="8080" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Guest IP</label>
+                            <input type="text" id="ruleGuestIP" class="form-control" placeholder="192.168.119.128" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Guest Port</label>
+                            <input type="number" id="ruleGuestPort" class="form-control" placeholder="80" required>
+                        </div>
+                        <div class="col-md-12">
+                            <button type="submit" class="btn btn-primary w-100">Add Rule</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
-      </div>
-
-    </div><!-- /page-body -->
-  </div><!-- /main -->
-</div><!-- /app-wrap -->
-
-<!-- ═══ MODALS ═══ -->
-
-<!-- Edit User -->
-<div class="modal-ov" id="editUserModal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <span class="modal-title"><i class="fas fa-user-edit"></i> Edit User</span>
-      <button class="modal-close" onclick="closeModal('editUserModal')"><i class="fas fa-times"></i></button>
     </div>
-    <div class="modal-bd">
-      <input type="hidden" id="editUserId">
-      <div class="form-row"><label class="input-label">Username</label><input type="text" id="editUsername" class="input"></div>
-      <div class="form-row"><label class="input-label">Password <span class="text-muted text-xs">(leave blank to keep)</span></label><input type="password" id="editPassword" class="input" placeholder="New password…"></div>
-      <div class="form-row"><label class="input-label">Role</label><select id="editRole" class="select"><option value="user">User</option><option value="admin">Admin</option></select></div>
-      <div class="form-row"><label class="input-label">Discord Webhook</label><input type="text" id="editWebhook" class="input" placeholder="https://discord.com/api/webhooks/…"></div>
-    </div>
-    <div class="modal-ft">
-      <button class="btn btn-ghost" onclick="closeModal('editUserModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveUser()"><i class="fas fa-save"></i> Save</button>
-    </div>
-  </div>
-</div>
 
-<!-- Add VM -->
-<div class="modal-ov" id="addVMModal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <span class="modal-title"><i class="fas fa-plus-circle"></i> Register New VPS</span>
-      <button class="modal-close" onclick="closeModal('addVMModal')"><i class="fas fa-times"></i></button>
-    </div>
-    <div class="modal-bd">
-      <div class="form-row"><label class="input-label">VM Name</label><input type="text" id="vmName" class="input" placeholder="My Virtual Machine"></div>
-      <div class="form-row">
-        <label class="input-label">VMX Path</label>
-        <div class="input-row">
-          <input type="text" id="vmPath" list="vmPathList" class="input" placeholder="C:\Path\To\file.vmx">
-          <button class="btn btn-ghost btn-sm" onclick="scanVMs()" style="flex-shrink:0;" title="Scan for .vmx files"><i class="fas fa-search"></i></button>
+    <div class="row">
+        <div class="col-md-6">
+            <h5>TCP Rules</h5>
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            <th>Host Port</th>
+                            <th>Target</th>
+                            <th>VM Name</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tcpRulesBody"></tbody>
+                </table>
+            </div>
         </div>
-        <datalist id="vmPathList"></datalist>
-        <div class="input-hint">Click 🔍 to scan common directories for .vmx files.</div>
-      </div>
-      <div class="form-row"><label class="input-label">Assign Owner</label><select id="vmOwner" class="select"><option value="">-- No Owner --</option></select></div>
-      <div class="form-row"><label class="input-label">Expiration Date <span class="text-muted text-xs">(optional)</span></label><input type="date" id="vmExpiration" class="input"></div>
-    </div>
-    <div class="modal-ft">
-      <button class="btn btn-ghost" onclick="closeModal('addVMModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="createVM()"><i class="fas fa-plus"></i> Register VM</button>
-    </div>
-  </div>
-</div>
-
-<!-- Provision VM -->
-<div class="modal-ov" id="provisionVMModal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <span class="modal-title"><i class="fas fa-box-open"></i> Provision VPS from Template</span>
-      <button class="modal-close" onclick="closeModal('provisionVMModal')"><i class="fas fa-times"></i></button>
-    </div>
-    <div class="modal-bd">
-      <div class="form-row"><label class="input-label">VM Name</label><input type="text" id="provVmName" class="input" placeholder="Customer-VPS-01"></div>
-      <div class="form-row"><label class="input-label">Owner</label><select id="provVmOwner" class="select"></select></div>
-      <div class="form-row">
-        <label class="input-label">Clone Type</label>
-        <select id="provCloneType" class="select">
-          <option value="linked">Linked Clone (Fast, saves space)</option>
-          <option value="full">Full Clone (Independent, slower)</option>
-        </select>
-        <div class="input-hint">Linked requires the template to stay online. Full copies everything.</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div class="form-row"><label class="input-label">CPU Cores</label><input type="number" id="provCpuCores" class="input" value="2" min="1"></div>
-        <div class="form-row"><label class="input-label">RAM (MB)</label><input type="number" id="provRamMb" class="input" value="4096" min="1024" step="1024"></div>
-      </div>
-      <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:9px;padding:12px;font-size:12.5px;color:var(--text2);">
-        <i class="fas fa-info-circle" style="color:var(--accent);"></i> New VM will be created in <code style="font-family:var(--mono);background:var(--bg3);padding:1px 5px;border-radius:4px;">C:\Virtual Machines\Customers</code>
-      </div>
-    </div>
-    <div class="modal-ft">
-      <button class="btn btn-ghost" onclick="closeModal('provisionVMModal')">Cancel</button>
-      <button class="btn btn-primary" id="provisionBtn" onclick="provisionVM()"><i class="fas fa-rocket"></i> Provision</button>
+        <div class="col-md-6">
+            <h5>UDP Rules</h5>
+            <div class="table-responsive">
+                <table class="table table-hover table-sm">
+                    <thead>
+                        <tr>
+                            <th>Host Port</th>
+                            <th>Target</th>
+                            <th>VM Name</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="udpRulesBody"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
   </div>
 </div>
-
-<!-- Edit VM -->
-<div class="modal-ov" id="editVMModal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <span class="modal-title"><i class="fas fa-edit"></i> Edit VPS</span>
-      <button class="modal-close" onclick="closeModal('editVMModal')"><i class="fas fa-times"></i></button>
-    </div>
-    <div class="modal-bd">
-      <input type="hidden" id="editVMId">
-      <div class="form-row"><label class="input-label">VM Name</label><input type="text" id="editVMName" class="input"></div>
-      <div class="form-row"><label class="input-label">VMX Path</label><input type="text" id="editVMPath" class="input"></div>
-      <div class="form-row"><label class="input-label">Owner</label><select id="editVMOwner" class="select"><option value="">-- No Owner --</option></select></div>
-      <div class="form-row">
-        <label class="input-label">Internal IP <span class="text-muted text-xs">(static, for reference)</span></label>
-        <input type="text" id="editVMInternalIP" class="input" placeholder="192.168.119.x">
-        <div class="input-hint">Use "Network Config" to push this IP to the guest.</div>
-      </div>
-      <div class="form-row"><label class="input-label">Expiration Date</label><input type="date" id="editVMExpiration" class="input"></div>
-    </div>
-    <div class="modal-ft">
-      <button class="btn btn-ghost" onclick="closeModal('editVMModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveVM()"><i class="fas fa-save"></i> Save Changes</button>
-    </div>
-  </div>
-</div>
-
-<!-- Network Config -->
-<div class="modal-ov" id="netConfigModal">
-  <div class="modal-box">
-    <div class="modal-hd">
-      <span class="modal-title"><i class="fas fa-network-wired"></i> Network Configuration</span>
-      <button class="modal-close" onclick="closeModal('netConfigModal')"><i class="fas fa-times"></i></button>
-    </div>
-    <div class="modal-bd">
-      <input type="hidden" id="netConfigVmId">
-      <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:9px;padding:12px;font-size:12.5px;color:var(--text2);margin-bottom:16px;">
-        <i class="fas fa-info-circle" style="color:var(--accent);"></i> Settings are applied to Host DHCP. A VM reboot may be required.
-      </div>
-      <div class="form-row"><label class="input-label">Static IP Address</label><input type="text" id="netStaticIP" class="input" placeholder="192.168.119.x"></div>
-      <div class="form-row"><label class="input-label">Gateway</label><input type="text" id="netGateway" class="input" placeholder="192.168.119.2"></div>
-      <div class="form-row"><label class="input-label">DNS Servers <span class="text-muted text-xs">(comma-separated)</span></label><input type="text" id="netDNS" class="input" value="8.8.8.8, 8.8.4.4"></div>
-    </div>
-    <div class="modal-ft">
-      <button class="btn btn-ghost" onclick="closeModal('netConfigModal')">Cancel</button>
-      <button class="btn btn-primary" id="netApplyBtn" onclick="applyNetConfig()"><i class="fas fa-check"></i> Apply Static IP</button>
-    </div>
-  </div>
-</div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
-let users = [], currentVMs = [];
-let activeTab = 'users';
+    let users = [];
 
-/* ── INIT ── */
-(async () => {
-  try {
-    const r = await api.get('/auth/me');
-    document.getElementById('adminUsername').textContent = r.data.username || 'Admin';
-    document.getElementById('adminAvatar').textContent = (r.data.username||'A').charAt(0).toUpperCase();
-  } catch {}
-  await loadUsers();
-  await loadVMs();
-  await loadLogs();
-  updateStats();
-  setInterval(updateStats, 5000);
-  // Network tab loads on switch
-})();
-
-/* ── TABS ── */
-function switchTab(name) {
-  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
-  document.querySelectorAll('.sidebar .nav-link').forEach(l => l.classList.remove('active'));
-  document.querySelectorAll('.sidebar .nav-link').forEach(l => {
-    if (l.textContent.toLowerCase().includes(name.substring(0,4))) l.classList.add('active');
-  });
-  const titles = { users:'User Management', vms:'VPS Management', network:'Network Rules', logs:'Audit Logs' };
-  document.getElementById('topbarTitle').textContent = titles[name] || 'Admin Panel';
-  activeTab = name;
-  if (name === 'network') loadNetworkRules();
-  // Add action buttons per tab
-  const actions = document.getElementById('topbarActions');
-  actions.innerHTML = '';
-  if (name === 'logs') {
-    const b = document.createElement('button');
-    b.className = 'btn btn-ghost btn-sm';
-    b.innerHTML = '<i class="fas fa-sync"></i> Refresh';
-    b.onclick = loadLogs;
-    actions.appendChild(b);
-  }
-}
-
-/* ── USERS ── */
-async function loadUsers() {
-  try {
-    const r = await api.get('/admin/users');
-    users = r.data;
-    renderUsers();
-    updateOwnerDropdowns();
-  } catch (e) { console.error(e); }
-}
-
-function renderUsers() {
-  document.getElementById('userTableBody').innerHTML = users.map(u => `
-    <tr>
-      <td><span class="mono text-muted">#${u.id}</span></td>
-      <td><strong>${u.username}</strong></td>
-      <td><span class="badge ${u.role==='admin'?'badge-red':'badge-blue'}">${u.role}</span></td>
-      <td style="text-align:right;">
-        <button class="btn btn-ghost btn-xs" onclick="openEditUser(${u.id})" title="Edit"><i class="fas fa-edit"></i></button>
-        <button class="btn btn-danger-soft btn-xs" onclick="deleteUser(${u.id})" title="Delete" style="margin-left:4px;"><i class="fas fa-trash"></i></button>
-      </td>
-    </tr>`).join('');
-}
-
-async function createUser() {
-  const username = document.getElementById('newUsername').value.trim();
-  const password = document.getElementById('newPassword').value;
-  const role     = document.getElementById('newRole').value;
-  const webhook  = document.getElementById('newWebhook').value;
-  if (!username || !password) { showToast('Username and password required', 'warning'); return; }
-  try {
-    await api.post('/admin/users', { username, password, role, discord_webhook_url: webhook||null });
-    document.getElementById('newUsername').value = '';
-    document.getElementById('newPassword').value = '';
-    document.getElementById('newWebhook').value  = '';
-    showToast('User created', 'success');
-    loadUsers();
-  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-async function deleteUser(id) {
-  if (!await confirm2('Delete User', 'Are you sure? This cannot be undone.', true)) return;
-  try { await api.delete(`/admin/users/${id}`); showToast('User deleted', 'success'); loadUsers(); }
-  catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-function openEditUser(id) {
-  const u = users.find(u => u.id === id); if (!u) return;
-  document.getElementById('editUserId').value   = u.id;
-  document.getElementById('editUsername').value = u.username;
-  document.getElementById('editPassword').value = '';
-  document.getElementById('editRole').value     = u.role;
-  document.getElementById('editWebhook').value  = u.discord_webhook_url || '';
-  openModal('editUserModal');
-}
-
-async function saveUser() {
-  const id = document.getElementById('editUserId').value;
-  const payload = {
-    username: document.getElementById('editUsername').value,
-    role:     document.getElementById('editRole').value,
-    discord_webhook_url: document.getElementById('editWebhook').value || null
-  };
-  const pw = document.getElementById('editPassword').value;
-  if (pw) payload.password = pw;
-  try {
-    await api.put(`/admin/users/${id}`, payload);
-    closeModal('editUserModal');
-    showToast('User updated', 'success');
-    loadUsers();
-  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-/* ── VMS ── */
-async function loadVMs() {
-  try {
-    const r = await api.get('/admin/vms');
-    currentVMs = r.data;
-    updateOwnerDropdowns();
-    updateNetworkVmDropdown();
-    renderVMs(currentVMs);
-  } catch (e) { console.error(e); }
-}
-
-function renderVMs(list) {
-  document.getElementById('vmTableBody').innerHTML = list.map(v => {
-    const owner = users.find(u => u.id === v.owner_id);
-    return `<tr>
-      <td><span class="mono text-muted">#${v.id}</span></td>
-      <td><strong>${v.name}</strong></td>
-      <td><span class="mono text-xs" style="color:var(--text2);max-width:260px;display:inline-block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;" title="${v.vmx_path}">${v.vmx_path}</span></td>
-      <td>${owner ? `<span class="badge badge-blue">${owner.username}</span>` : `<span class="badge badge-gray">Unassigned</span>`}</td>
-      <td style="text-align:right;">
-        <button class="btn btn-ghost btn-xs" onclick="openNetConfig(${v.id})" title="Network Config"><i class="fas fa-network-wired"></i></button>
-        <button class="btn btn-ghost btn-xs" onclick="openEditVM(${v.id})" title="Edit" style="margin-left:4px;"><i class="fas fa-edit"></i></button>
-        <button class="btn btn-danger-soft btn-xs" onclick="deleteVM(${v.id})" title="Delete" style="margin-left:4px;"><i class="fas fa-trash"></i></button>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-function filterVMs() {
-  const q = document.getElementById('vmSearch').value.toLowerCase();
-  renderVMs(currentVMs.filter(v => v.name.toLowerCase().includes(q) || v.vmx_path.toLowerCase().includes(q) || String(v.id).includes(q)));
-}
-
-async function createVM() {
-  const name       = document.getElementById('vmName').value.trim();
-  const vmx_path   = document.getElementById('vmPath').value.trim();
-  const owner_id   = document.getElementById('vmOwner').value;
-  const expiration = document.getElementById('vmExpiration').value;
-  if (!name || !vmx_path) { showToast('Name and VMX path required', 'warning'); return; }
-  try {
-    await api.post('/admin/vms', { name, vmx_path, owner_id: owner_id ? parseInt(owner_id) : null, expiration_date: expiration || null });
-    closeModal('addVMModal');
-    showToast('VM registered', 'success');
-    loadVMs();
-  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-async function deleteVM(id) {
-  if (!await confirm2('Remove VM', 'Remove this VM from the panel? The files will NOT be deleted.', true)) return;
-  try { await api.delete(`/admin/vms/${id}`); showToast('VM removed', 'success'); loadVMs(); }
-  catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-function openEditVM(id) {
-  const v = currentVMs.find(v => v.id === id); if (!v) return;
-  document.getElementById('editVMId').value        = v.id;
-  document.getElementById('editVMName').value      = v.name;
-  document.getElementById('editVMPath').value      = v.vmx_path;
-  document.getElementById('editVMOwner').value     = v.owner_id || '';
-  document.getElementById('editVMInternalIP').value= v.internal_ip || v.rdp_ip || '';
-  if (v.expiration_date) {
-    const d = new Date(v.expiration_date);
-    document.getElementById('editVMExpiration').value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  } else { document.getElementById('editVMExpiration').value = ''; }
-  openModal('editVMModal');
-}
-
-async function saveVM() {
-  const id = document.getElementById('editVMId').value;
-  const ownerId = document.getElementById('editVMOwner').value;
-  const expStr  = document.getElementById('editVMExpiration').value;
-  try {
-    await api.put(`/admin/vms/${id}`, {
-      name:            document.getElementById('editVMName').value,
-      vmx_path:        document.getElementById('editVMPath').value,
-      owner_id:        ownerId ? parseInt(ownerId) : null,
-      internal_ip:     document.getElementById('editVMInternalIP').value || null,
-      expiration_date: expStr ? new Date(expStr).toISOString() : null
-    });
-    closeModal('editVMModal');
-    showToast('VM updated', 'success');
-    loadVMs();
-  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-async function scanVMs() {
-  const btn = document.querySelector('button[onclick="scanVMs()"]');
-  btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
-  try {
-    const r = await api.get('/admin/scan_vms');
-    const dl = document.getElementById('vmPathList');
-    dl.innerHTML = r.data.paths.map(p => `<option value="${p}">`).join('');
-    showToast(`Found ${r.data.paths.length} VMX file(s)`, r.data.paths.length > 0 ? 'success' : 'warning');
-  } catch (e) { showToast('Scan failed', 'danger'); }
-  finally { btn.disabled=false; btn.innerHTML='<i class="fas fa-search"></i>'; }
-}
-
-async function provisionVM() {
-  const name    = document.getElementById('provVmName').value.trim();
-  const ownerId = document.getElementById('provVmOwner').value;
-  if (!name)    { showToast('Enter a VM name', 'warning'); return; }
-  if (!ownerId) { showToast('Assign an owner', 'warning'); return; }
-  const btn = document.getElementById('provisionBtn');
-  btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Provisioning…';
-  try {
-    await api.post('/admin/vms/provision', {
-      name, owner_id: parseInt(ownerId),
-      clone_type:   document.getElementById('provCloneType').value,
-      cpu_cores:    parseInt(document.getElementById('provCpuCores').value),
-      ram_mb:       parseInt(document.getElementById('provRamMb').value)
-    });
-    closeModal('provisionVMModal');
-    showToast('VM provisioned successfully!', 'success');
-    loadVMs();
-  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-  finally { btn.disabled=false; btn.innerHTML='<i class="fas fa-rocket"></i> Provision'; }
-}
-
-/* ── OWNER DROPDOWNS ── */
-function updateOwnerDropdowns() {
-  const opts = '<option value="">-- No Owner --</option>' + users.map(u => `<option value="${u.id}">${u.username} (#${u.id})</option>`).join('');
-  ['vmOwner','editVMOwner'].forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=opts; });
-  const provEl = document.getElementById('provVmOwner');
-  if (provEl) provEl.innerHTML = users.map(u=>`<option value="${u.id}">${u.username} (#${u.id})</option>`).join('');
-}
-
-function updateNetworkVmDropdown() {
-  const el = document.getElementById('ruleVmId'); if (!el) return;
-  el.innerHTML = '<option value="">-- Select VM --</option>' + currentVMs.map(v=>`<option value="${v.id}">${v.name} (#${v.id})</option>`).join('');
-}
-
-/* ── NETWORK CONFIG ── */
-async function openNetConfig(id) {
-  document.getElementById('netConfigVmId').value = id;
-  document.getElementById('netGateway').value    = '192.168.119.2';
-  document.getElementById('netDNS').value        = '1.1.1.1, 1.0.0.1';
-  const input = document.getElementById('netStaticIP');
-  input.value = '';
-  const vm = currentVMs.find(v => v.id === id);
-  if (vm?.internal_ip) input.value = vm.internal_ip;
-  openModal('netConfigModal');
-  try {
-    const r = await api.get(`/admin/vms/${id}/guest_ip`);
-    if (r.data.ip && !r.data.ip.includes('Unknown') && !input.value) input.value = r.data.ip;
-  } catch {}
-}
-
-async function applyNetConfig() {
-  const id  = document.getElementById('netConfigVmId').value;
-  const ip  = document.getElementById('netStaticIP').value;
-  const gw  = document.getElementById('netGateway').value;
-  const dns = document.getElementById('netDNS').value.split(',').map(s=>s.trim());
-  const btn = document.getElementById('netApplyBtn');
-  btn.disabled=true; btn.innerHTML='<i class="fas fa-circle-notch fa-spin"></i> Applying…';
-  try {
-    const r = await api.post(`/vms/${id}/static_ip`, { ip, gateway:gw, dns });
-    closeModal('netConfigModal');
-    showToast(r.data.message, 'success');
-  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-  finally { btn.disabled=false; btn.innerHTML='<i class="fas fa-check"></i> Apply Static IP'; }
-}
-
-/* ── NETWORK RULES ── */
-let _allRules = { tcp: [], udp: [] };
-let _sortState = { tcp: { col: null, asc: true }, udp: { col: null, asc: true } };
-let _bulkMode = false;
-
-async function loadNetworkRules() {
-  try {
-    const r = await api.get('/network/forwarding');
-    _allRules.tcp = r.data.tcp || [];
-    _allRules.udp = r.data.udp || [];
-    filterRules();
-  } catch (e) { console.error(e); }
-}
-
-function filterRules() {
-  const q = (document.getElementById('ruleSearch')?.value || '').toLowerCase();
-  const filter = rules => rules.filter(r =>
-    String(r.host_port).includes(q) ||
-    (r.guest_ip||'').includes(q) ||
-    String(r.guest_port).includes(q) ||
-    (r.vm_name||'').toLowerCase().includes(q)
-  );
-  renderRulesTable('tcp', filter(_allRules.tcp));
-  renderRulesTable('udp', filter(_allRules.udp));
-  document.getElementById('tcpCount').textContent = `(${filter(_allRules.tcp).length})`;
-  document.getElementById('udpCount').textContent = `(${filter(_allRules.udp).length})`;
-}
-
-function renderRulesTable(proto, rules) {
-  const sorted = sortedRules(proto, rules);
-  const colCount = _bulkMode ? 5 : 4;
-  const body = document.getElementById(proto+'RulesBody');
-  if (!sorted.length) {
-    body.innerHTML = `<tr><td colspan="${colCount}" class="text-muted text-xs" style="padding:14px;">No ${proto.toUpperCase()} rules</td></tr>`;
-    return;
-  }
-  body.innerHTML = sorted.map(rule => {
-    const nameVal = (rule.vm_name && rule.vm_name !== '-' && rule.vm_name !== '—') ? rule.vm_name : '';
-    const nameDisplay = nameVal
-      ? `<span class="rule-name-text text-xs" style="cursor:pointer;color:var(--text2);" onclick="editRuleName(this)" data-proto="${proto}" data-port="${rule.host_port}">${nameVal}</span>`
-      : `<span class="rule-name-text text-xs text-muted" style="cursor:pointer;font-style:italic;opacity:0.5;" onclick="editRuleName(this)" data-proto="${proto}" data-port="${rule.host_port}">+ add name</span>`;
-    const targetStr = `${rule.guest_ip}:${rule.guest_port}`;
-    const bulkTd = _bulkMode ? `<td style="padding:8px 6px;"><input type="checkbox" class="bulk-cb" data-proto="${proto}" data-port="${rule.host_port}" onchange="updateBulkCount()"></td>` : '';
-    return `<tr>
-      ${bulkTd}
-      <td><span class="badge badge-gray">${rule.host_port}</span></td>
-      <td>
-        <span class="mono text-xs">${targetStr}</span>
-        <button title="Copy" class="btn btn-ghost btn-xs" style="padding:2px 5px;margin-left:4px;" onclick="copyText('${targetStr}',this)"><i class="fas fa-copy"></i></button>
-      </td>
-      <td class="rule-name-cell">${nameDisplay}</td>
-      <td><button class="btn btn-danger-soft btn-xs" onclick="deleteNetworkRule('${proto}',${rule.host_port})"><i class="fas fa-trash"></i></button></td>
-    </tr>`;
-  }).join('');
-}
-
-function sortedRules(proto, rules) {
-  const { col, asc } = _sortState[proto];
-  if (!col) return rules;
-  return [...rules].sort((a, b) => {
-    let av = col === 'target' ? `${a.guest_ip}:${a.guest_port}` : (col === 'vm_name' ? (a.vm_name||'') : a[col]);
-    let bv = col === 'target' ? `${b.guest_ip}:${b.guest_port}` : (col === 'vm_name' ? (b.vm_name||'') : b[col]);
-    if (typeof av === 'number') return asc ? av - bv : bv - av;
-    return asc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
-  });
-}
-
-function sortRules(proto, col) {
-  if (_sortState[proto].col === col) _sortState[proto].asc = !_sortState[proto].asc;
-  else { _sortState[proto].col = col; _sortState[proto].asc = true; }
-  // Update sort indicators
-  ['host_port','target','vm_name'].forEach(c => {
-    const el = document.getElementById(`sort_${proto}_${c}`);
-    if (el) el.textContent = c === col ? (_sortState[proto].asc ? '↑' : '↓') : '↕';
-  });
-  filterRules();
-}
-
-function toggleBulkMode() {
-  _bulkMode = document.getElementById('bulkModeToggle').checked;
-  ['tcp','udp'].forEach(p => {
-    const th = document.getElementById('bulkTh'+p.charAt(0).toUpperCase()+p.slice(1));
-    if (th) th.style.display = _bulkMode ? '' : 'none';
-  });
-  document.getElementById('bulkDeleteBtn').style.display = 'none';
-  document.getElementById('bulkCount').textContent = '0';
-  filterRules();
-}
-
-function checkAll(proto, checked) {
-  document.querySelectorAll(`.bulk-cb[data-proto="${proto}"]`).forEach(cb => cb.checked = checked);
-  updateBulkCount();
-}
-
-function updateBulkCount() {
-  const count = document.querySelectorAll('.bulk-cb:checked').length;
-  document.getElementById('bulkCount').textContent = count;
-  document.getElementById('bulkDeleteBtn').style.display = count > 0 ? '' : 'none';
-}
-
-async function bulkDelete() {
-  const selected = [...document.querySelectorAll('.bulk-cb:checked')].map(cb => ({ proto: cb.dataset.proto, port: parseInt(cb.dataset.port) }));
-  if (!selected.length) return;
-  if (!await confirm2('Bulk Delete', `Delete ${selected.length} rule(s)? This cannot be undone.`, true)) return;
-  let ok = 0, fail = 0;
-  for (const { proto, port } of selected) {
-    try { await api.delete(`/network/forwarding/${proto}/${port}`); ok++; }
-    catch { fail++; }
-  }
-  showToast(`Deleted ${ok} rule(s)${fail ? `, ${fail} failed` : ''}`, fail ? 'warning' : 'success');
-  document.getElementById('bulkModeToggle').checked = false;
-  _bulkMode = false;
-  loadNetworkRules();
-}
-
-function copyText(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
-    const orig = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-check"></i>';
-    setTimeout(() => btn.innerHTML = orig, 1200);
-  });
-}
-
-function checkPortConflict(port, proto) {
-  const warn = document.getElementById('portConflictWarn');
-  const msg = document.getElementById('portConflictMsg');
-  if (!port) { warn.style.display = 'none'; return; }
-  const portNum = parseInt(port);
-  const protos = proto === 'both' ? ['tcp','udp'] : [proto];
-  const conflicts = [];
-  for (const p of protos) {
-    const match = _allRules[p]?.find(r => r.host_port === portNum);
-    if (match) conflicts.push(`${p.toUpperCase()} port ${portNum} already forwards to ${match.guest_ip}:${match.guest_port}`);
-  }
-  if (conflicts.length) {
-    msg.textContent = 'Conflict: ' + conflicts.join('; ');
-    warn.style.display = '';
-  } else {
-    warn.style.display = 'none';
-  }
-}
-
-function toggleRangeMode() {
-  const on = document.getElementById('rangeMode').checked;
-  document.getElementById('singlePortWrap').style.display = on ? 'none' : '';
-  document.getElementById('rangePortWrap').style.display = on ? '' : 'none';
-  document.getElementById('singleGuestPortWrap').style.display = on ? 'none' : '';
-  document.getElementById('rangeGuestPortWrap').style.display = on ? '' : 'none';
-}
-
-function editRuleName(el) {
-  const cell = el.closest('.rule-name-cell');
-  const proto = el.dataset.proto;
-  const port = el.dataset.port;
-  const currentName = el.classList.contains('text-muted') ? '' : el.textContent.trim();
-  cell.innerHTML = `
-    <div style="display:flex;align-items:center;gap:6px;">
-      <input type="text" class="input" style="padding:3px 7px;height:28px;font-size:12px;min-width:120px;"
-             value="${currentName}" placeholder="e.g. Minecraft" id="renameInput_${proto}_${port}"
-             onkeydown="if(event.key==='Enter') saveRuleName('${proto}',${port}); if(event.key==='Escape') loadNetworkRules();">
-      <button class="btn btn-primary btn-xs" onclick="saveRuleName('${proto}',${port})"><i class="fas fa-check"></i></button>
-      <button class="btn btn-ghost btn-xs" onclick="loadNetworkRules()"><i class="fas fa-times"></i></button>
-    </div>`;
-  document.getElementById(`renameInput_${proto}_${port}`)?.focus();
-}
-
-async function saveRuleName(proto, port) {
-  const input = document.getElementById(`renameInput_${proto}_${port}`);
-  if (!input) return;
-  const name = input.value.trim() || null;
-  try {
-    await api.patch(`/network/forwarding/${proto}/${port}`, { name });
-    // Update local cache
-    const rule = _allRules[proto]?.find(r => r.host_port === parseInt(port));
-    if (rule) rule.vm_name = name || '-';
-    showToast('Name saved', 'success');
-    filterRules();
-  } catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-function exportRules(format) {
-  const all = [
-    ..._allRules.tcp.map(r => ({ ...r, protocol: 'tcp' })),
-    ..._allRules.udp.map(r => ({ ...r, protocol: 'udp' }))
-  ];
-  if (format === 'json') {
-    const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
-    downloadBlob(blob, 'port_rules.json');
-  } else {
-    const headers = 'protocol,host_port,guest_ip,guest_port,name';
-    const rows = all.map(r => `${r.protocol},${r.host_port},${r.guest_ip},${r.guest_port},"${(r.vm_name||'').replace(/"/g,'""')}"`);
-    const blob = new Blob([[headers, ...rows].join('\n')], { type: 'text/csv' });
-    downloadBlob(blob, 'port_rules.csv');
-  }
-}
-
-function downloadBlob(blob, filename) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-async function addNetworkRule() {
-  const vmId = document.getElementById('ruleVmId').value;
-  const proto = document.getElementById('ruleProtocol').value;
-  const isRange = document.getElementById('rangeMode').checked;
-  const guestIP = document.getElementById('ruleGuestIP').value;
-  const name = document.getElementById('ruleName').value.trim() || null;
-
-  if (isRange) {
-    const start = parseInt(document.getElementById('rulePortStart').value);
-    const end = parseInt(document.getElementById('rulePortEnd').value);
-    const guestStart = parseInt(document.getElementById('ruleGuestPortStart').value);
-    if (!start || !end || !guestIP || !guestStart || start > end) { showToast('Fill all range fields correctly', 'warning'); return; }
-    const protos = proto === 'both' ? ['tcp','udp'] : [proto];
-    let added = 0;
-    for (let p of protos) {
-      for (let i = start; i <= end; i++) {
+    async function loadUsers() {
         try {
-          await api.post('/network/forwarding', { protocol: p, host_port: i, guest_ip: guestIP, guest_port: guestStart + (i - start), vm_id: vmId ? parseInt(vmId) : null, name: name ? `${name} ${i}` : null });
-          added++;
-        } catch {}
-      }
+            const res = await api.get('/admin/users');
+            users = res.data;
+            renderUsers();
+            updateOwnerDropdown();
+        } catch(err) { console.error("Failed to load users", err); }
     }
-    showToast(`Added ${added} rules`, 'success');
-  } else {
-    const protos = proto === 'both' ? ['tcp','udp'] : [proto];
-    const host_port = parseInt(document.getElementById('ruleHostPort').value);
-    const guest_port = parseInt(document.getElementById('ruleGuestPort').value);
-    if (!host_port || !guestIP || !guest_port) { showToast('Fill all required fields', 'warning'); return; }
-    for (let p of protos) {
-      try { await api.post('/network/forwarding', { protocol: p, host_port, guest_ip: guestIP, guest_port, vm_id: vmId ? parseInt(vmId) : null, name }); }
-      catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); return; }
+    
+    function renderUsers() {
+        const tbody = document.getElementById('userTableBody');
+        tbody.innerHTML = users.map(u => `
+            <tr>
+                <td>${u.id}</td>
+                <td>${u.username}</td>
+                <td><span class="badge bg-${u.role === 'admin' ? 'danger' : 'info'}">${u.role}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-warning" onclick="openEditUserModal(${u.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${u.id})"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `).join('');
     }
-    showToast('Rule added — service restarted', 'success');
-    ['ruleHostPort','ruleGuestIP','ruleGuestPort','ruleName'].forEach(id => document.getElementById(id).value='');
-    document.getElementById('portConflictWarn').style.display = 'none';
-  }
-  loadNetworkRules();
-}
 
-async function deleteNetworkRule(proto, port) {
-  if (!await confirm2('Delete Rule', `Remove forwarding rule for port ${port}?`, true)) return;
-  try { await api.delete(`/network/forwarding/${proto}/${port}`); showToast('Rule deleted', 'success'); loadNetworkRules(); }
-  catch (e) { showToast('Failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-}
-
-/* ── LOGS ── */
-async function loadLogs() {
-  try {
-    const r = await api.get('/admin/audit_logs');
-    const actionColor = a => {
-      if (a.startsWith('LOGIN_FAIL')) return 'badge-red';
-      if (a.startsWith('LOGIN')) return 'badge-green';
-      if (a.includes('DELETE')) return 'badge-red';
-      if (a.includes('ADD') || a.includes('CREATE')) return 'badge-blue';
-      return 'badge-gray';
-    };
-    document.getElementById('logsTableBody').innerHTML = r.data.map(l => `<tr>
-      <td class="text-xs text-muted">${new Date(l.timestamp).toLocaleString()}</td>
-      <td><span class="badge badge-gray">${l.user_id ? '#'+l.user_id : '—'}</span></td>
-      <td><span class="badge ${actionColor(l.action)}">${l.action}</span></td>
-      <td class="text-xs text-muted">${l.vm_id||'—'}</td>
-      <td class="text-xs text-muted">${l.details||''}</td>
-    </tr>`).join('') || '<tr><td colspan="5" class="text-muted" style="padding:20px;text-align:center;">No logs found</td></tr>';
-  } catch (e) { console.error(e); }
-}
-
-/* ── STATS ── */
-async function updateStats() {
-  try {
-    const r = await api.get('/admin/stats');
-    const s = r.data;
-    document.getElementById('cpuVal').textContent  = s.cpu+'%';
-    document.getElementById('cpuBar').style.width  = s.cpu+'%';
-    document.getElementById('ramVal').textContent  = s.ram.percent+'%';
-    document.getElementById('ramText').textContent = `${s.ram.used} / ${s.ram.total} GB`;
-    document.getElementById('ramBar').style.width  = s.ram.percent+'%';
-    document.getElementById('diskVal').textContent  = s.disk.percent+'%';
-    document.getElementById('diskText').textContent = `${s.disk.used} / ${s.disk.total} GB`;
-    document.getElementById('diskBar').style.width  = s.disk.percent+'%';
-    if (s.net) {
-      const now = Date.now();
-      if (window._lastNet && window._lastT) {
-        const dt = (now - window._lastT) / 1000;
-        if (dt > 0) {
-          document.getElementById('netIn').textContent  = fmtSpeed((s.net.recv - window._lastNet.recv) / dt);
-          document.getElementById('netOut').textContent = fmtSpeed((s.net.sent - window._lastNet.sent) / dt);
+    async function deleteUser(id) {
+        if (!confirm('Are you sure you want to delete this user?')) return;
+        try {
+            await api.delete(`/admin/users/${id}`);
+            loadUsers();
+        } catch(err) {
+            alert('Failed to delete user: ' + (err.response?.data?.detail || err.message));
         }
-      }
-      document.getElementById('netTotal').textContent = `↓ ${fmtBytes(s.net.recv)} ↑ ${fmtBytes(s.net.sent)}`;
-      window._lastNet = s.net; window._lastT = now;
     }
-    if (s.port_rules) {
-      document.getElementById('portRulesVal').textContent = s.port_rules.total;
-      document.getElementById('portRulesSub').textContent = `TCP: ${s.port_rules.tcp} | UDP: ${s.port_rules.udp}`;
+
+    function openEditUserModal(userId) {
+        const user = users.find(u => u.id === userId);
+        if (!user) return;
+
+        document.getElementById('editUserId').value = user.id;
+        document.getElementById('editUsername').value = user.username;
+        document.getElementById('editRole').value = user.role;
+        document.getElementById('editWebhook').value = user.discord_webhook_url || '';
+        document.getElementById('editPassword').value = ''; // Clear password field
+
+        const modal = new bootstrap.Modal(document.getElementById('editUserModal'));
+        modal.show();
     }
-    if (s.net_per_nic) window._nicStats = s.net_per_nic;
-  } catch {}
-}
 
+    document.getElementById('editUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const userId = document.getElementById('editUserId').value;
+        const payload = {
+            username: document.getElementById('editUsername').value,
+            role: document.getElementById('editRole').value,
+            discord_webhook_url: document.getElementById('editWebhook').value || null
+        };
+        const password = document.getElementById('editPassword').value;
+        if (password) {
+            payload.password = password;
+        }
 
-/* ── IMPORT RULES ── */
-async function importRules(input) {
-  const file = input.files[0]; if (!file) return;
-  try {
-    const text = await file.text();
-    const rules = JSON.parse(text);
-    if (!Array.isArray(rules)) { showToast('Invalid JSON: expected an array', 'danger'); return; }
-    const r = await api.post('/admin/network/import', rules);
-    showToast(`Imported ${r.data.added} rule(s), skipped ${r.data.skipped}`, r.data.skipped > 0 ? 'warning' : 'success');
-    loadNetworkRules();
-  } catch (e) { showToast('Import failed: '+(e.response?.data?.detail||e.message), 'danger'); }
-  input.value = '';
-}
+        try {
+            await api.put(`/admin/users/${userId}`, payload);
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editUserModal'));
+            modal.hide();
+            loadUsers();
+            alert('User updated successfully!');
+        } catch(err) {
+            alert('Failed to update user: ' + (err.response?.data?.detail || err.message));
+        }
+    });
 
-/* ── BANDWIDTH ── */
-function showBandwidth() {
-  const card = document.getElementById('bandwidthCard');
-  const body = document.getElementById('bandwidthBody');
-  const stats = window._nicStats || {};
-  const nics = Object.entries(stats);
-  if (!nics.length) { showToast('No NIC data yet — wait a moment and try again', 'warning'); return; }
-  body.innerHTML = nics.map(([nic, c]) => `
-    <div style="background:var(--bg3);border-radius:8px;padding:12px;">
-      <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;">${nic}</div>
-      <div style="display:flex;flex-direction:column;gap:3px;">
-        <div style="font-size:12px;"><i class="fas fa-arrow-down" style="color:var(--cyan);width:14px;"></i> ${fmtBytes(c.recv)} recv</div>
-        <div style="font-size:12px;"><i class="fas fa-arrow-up" style="color:var(--yellow);width:14px;"></i> ${fmtBytes(c.sent)} sent</div>
-        <div style="font-size:11px;color:var(--text3);">${(c.packets_recv||0).toLocaleString()} / ${(c.packets_sent||0).toLocaleString()} pkts</div>
-      </div>
-    </div>`).join('');
-  card.style.display = '';
-}
+    function updateOwnerDropdown() {
+        const select = document.getElementById('vmOwner');
+        const editSelect = document.getElementById('editVMOwner');
+        const provSelect = document.getElementById('provVmOwner');
+        const currentVal = select.value;
+        const currentEditVal = editSelect.value;
+        
+        const options = '<option value="">-- No Owner --</option>' + 
+            users.map(u => `<option value="${u.id}">${u.username} (ID: ${u.id})</option>`).join('');
+            
+        select.innerHTML = options;
+        editSelect.innerHTML = options;
+        if(provSelect) provSelect.innerHTML = options;
+        
+        if (currentVal) select.value = currentVal;
+        if (currentEditVal) editSelect.value = currentEditVal;
+    }
 
-function fmtBytes(b) {
-  if (!b) return '0 B';
-  const k=1024, s=['B','KB','MB','GB','TB'];
-  const i=Math.floor(Math.log(b)/Math.log(k));
-  return (b/Math.pow(k,i)).toFixed(1)+' '+s[i];
-}
-function fmtSpeed(b) { return fmtBytes(b)+'/s'; }
+    function updateNetworkVmDropdown() {
+        const select = document.getElementById('ruleVmId');
+        if (!select) return;
+        const currentVal = select.value;
+        select.innerHTML = '<option value="">-- Select VM --</option>' + 
+            currentVMs.map(v => `<option value="${v.id}">${v.name} (ID: ${v.id})</option>`).join('');
+        if (currentVal) select.value = currentVal;
+    }
+
+    let currentVMs = [];
+
+    async function loadVMs() {
+        try {
+            const res = await api.get('/admin/vms');
+            currentVMs = res.data;
+            updateNetworkVmDropdown();
+            const tbody = document.getElementById('vmTableBody');
+            tbody.innerHTML = res.data.map(v => {
+                const owner = users.find(u => u.id === v.owner_id);
+                return `
+                <tr>
+                    <td>${v.id}</td>
+                    <td><strong>${v.name}</strong></td>
+                    <td><small class="text-muted text-truncate d-inline-block" style="max-width: 250px;" title="${v.vmx_path}">${v.vmx_path}</small></td>
+                    <td>${owner ? `<span class="badge bg-info">${owner.username}</span>` : '<span class="badge bg-secondary">Unassigned</span>'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-info" title="Network Config" onclick="openNetConfig(${v.id})"><i class="fas fa-network-wired"></i></button>
+                        <button class="btn btn-sm btn-outline-primary" title="Edit" onclick="openEditVMModal(${v.id})"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="deleteVM(${v.id})"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+            `}).join('');
+        } catch(err) { console.error("Failed to load VMs", err); }
+    }
+
+    function filterVMs() {
+        const input = document.getElementById('vmSearch');
+        const filter = input.value.toUpperCase();
+        const table = document.getElementById('vmTableBody');
+        const tr = table.getElementsByTagName('tr');
+
+        for (let i = 0; i < tr.length; i++) {
+            const tdName = tr[i].getElementsByTagName('td')[1];
+            const tdPath = tr[i].getElementsByTagName('td')[2];
+            if (tdName || tdPath) {
+                const txtValueName = tdName.textContent || tdName.innerText;
+                const txtValuePath = tdPath.textContent || tdPath.innerText;
+                if (txtValueName.toUpperCase().indexOf(filter) > -1 || txtValuePath.toUpperCase().indexOf(filter) > -1) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
+        }
+    }
+
+    async function deleteVM(id) {
+        if (!confirm('Are you sure you want to remove this VM from the panel?')) return;
+        try {
+            await api.delete(`/admin/vms/${id}`);
+            loadVMs();
+        } catch(err) {
+            alert('Failed to delete VM: ' + (err.response?.data?.detail || err.message));
+        }
+    }
+
+    function openEditVMModal(vmId) {
+        const vm = currentVMs.find(v => v.id === vmId);
+        if (!vm) return;
+
+        document.getElementById('editVMId').value = vm.id;
+        document.getElementById('editVMName').value = vm.name;
+        document.getElementById('editVMPath').value = vm.vmx_path;
+        document.getElementById('editVMPath').dataset.original = vm.vmx_path; // track original to skip unchanged path
+        document.getElementById('editVMOwner').value = vm.owner_id || "";
+        // Pre-fill with existing Internal IP, or fallback to current RDP IP if available (to help user lock it in)
+        document.getElementById('editVMInternalIP').value = vm.internal_ip || vm.rdp_ip || "";
+
+        const modal = new bootstrap.Modal(document.getElementById('editVMModal'));
+        modal.show();
+    }
+
+    document.getElementById('editVMForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const vmId = document.getElementById('editVMId').value;
+        const ownerId = document.getElementById('editVMOwner').value;
+        const newPath = document.getElementById('editVMPath').value;
+        const originalPath = document.getElementById('editVMPath').dataset.original;
+
+        const payload = {
+            name: document.getElementById('editVMName').value,
+            owner_id: ownerId ? parseInt(ownerId) : null,
+            internal_ip: document.getElementById('editVMInternalIP').value || null
+        };
+
+        // Only include vmx_path if it actually changed — sending the same path
+        // triggers a UNIQUE constraint violation on the DB (500 error)
+        // Use case-insensitive compare — Windows paths are case-insensitive
+        if (newPath.toLowerCase() !== originalPath.toLowerCase()) {
+            payload.vmx_path = newPath;
+        }
+
+        try {
+            await api.put(`/admin/vms/${vmId}`, payload);
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editVMModal'));
+            modal.hide();
+            loadVMs();
+            alert('VM updated successfully!');
+        } catch(err) {
+            alert('Failed to update VM: ' + (err.response?.data?.detail || err.message));
+        }
+    });
+
+    async function scanVMs() {
+        const btn = document.getElementById('scanBtn');
+        const icon = document.getElementById('scanIcon');
+        const spinner = document.getElementById('scanSpinner');
+        const hint = document.getElementById('vmxHint');
+
+        icon.classList.add('d-none');
+        spinner.classList.remove('d-none');
+        btn.disabled = true;
+        hint.innerHTML = '<span style="color:var(--accent)">// SCANNING...</span>';
+
+        try {
+            const res = await api.get('/admin/scan_vms');
+            window._vmxPaths = res.data.paths;
+            const count = res.data.paths.length;
+            hint.innerHTML = count > 0
+                ? `<span style="color:var(--safe)">// FOUND ${count} VMX FILES — type to filter</span>`
+                : `<span style="color:var(--warn)">// NO VMX FILES FOUND</span>`;
+            if (count > 0) vmxShowDropdown('');
+        } catch(err) {
+            hint.innerHTML = `<span style="color:var(--danger)">// SCAN FAILED: ${err.response?.data?.detail || err.message}</span>`;
+        } finally {
+            icon.classList.remove('d-none');
+            spinner.classList.add('d-none');
+            btn.disabled = false;
+        }
+    }
+
+    window._vmxPaths = [];
+    window._vmxActiveIdx = -1;
+
+    function vmxShowDropdown(query) {
+        const dd = document.getElementById('vmxDropdown');
+        const paths = window._vmxPaths;
+        if (!paths || paths.length === 0) { dd.style.display = 'none'; return; }
+
+        const q = query.toLowerCase();
+        const filtered = q ? paths.filter(p => p.toLowerCase().includes(q)) : paths;
+
+        if (filtered.length === 0) { dd.style.display = 'none'; return; }
+
+        window._vmxFiltered = filtered;
+        window._vmxActiveIdx = -1;
+
+        dd.innerHTML = filtered.map((p, i) => {
+            const dir = p.lastIndexOf('\\') !== -1 ? p.substring(0, p.lastIndexOf('\\') + 1) : '';
+            const file = p.substring(p.lastIndexOf('\\') + 1);
+            const hilite = q ? file.replace(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi'), '<mark>$1</mark>') : file;
+            return `<div class="vmx-dd-item" data-idx="${i}" onmousedown="vmxSelect('${p.replace(/'/g,"\\'")}')" onmouseover="vmxHover(${i})">
+                <span class="vmx-dd-dir">${dir}</span><span class="vmx-dd-file">${hilite}</span>
+            </div>`;
+        }).join('');
+
+        dd.style.display = 'block';
+    }
+
+    function vmxFilterDropdown(val) {
+        if (window._vmxPaths && window._vmxPaths.length) vmxShowDropdown(val);
+    }
+
+    function vmxSelect(path) {
+        document.getElementById('vmPath').value = path;
+        document.getElementById('vmxDropdown').style.display = 'none';
+        window._vmxActiveIdx = -1;
+    }
+
+    function vmxHover(idx) {
+        window._vmxActiveIdx = idx;
+        document.querySelectorAll('.vmx-dd-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+    }
+
+    function vmxKeyNav(e) {
+        const dd = document.getElementById('vmxDropdown');
+        const items = document.querySelectorAll('.vmx-dd-item');
+        if (dd.style.display === 'none' || items.length === 0) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            window._vmxActiveIdx = Math.min(window._vmxActiveIdx + 1, items.length - 1);
+            items.forEach((el, i) => el.classList.toggle('active', i === window._vmxActiveIdx));
+            items[window._vmxActiveIdx]?.scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            window._vmxActiveIdx = Math.max(window._vmxActiveIdx - 1, 0);
+            items.forEach((el, i) => el.classList.toggle('active', i === window._vmxActiveIdx));
+            items[window._vmxActiveIdx]?.scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter' && window._vmxActiveIdx >= 0) {
+            e.preventDefault();
+            vmxSelect(window._vmxFiltered[window._vmxActiveIdx]);
+        } else if (e.key === 'Escape') {
+            dd.style.display = 'none';
+        }
+    }
+
+    // Close dropdown on outside click
+    document.addEventListener('click', function(e) {
+        if (!document.getElementById('vmxPickerWrap')?.contains(e.target)) {
+            const dd = document.getElementById('vmxDropdown');
+            if (dd) dd.style.display = 'none';
+        }
+    });
+
+    // --- Network Management ---
+    async function loadNetworkRules() {
+        try {
+            const res = await api.get('/network/forwarding');
+            renderNetworkRules(res.data);
+        } catch(err) {
+            console.error("Failed to load network rules", err);
+        }
+    }
+
+    function renderNetworkRules(data) {
+        const renderRow = (rule, protocol) => `
+            <tr>
+                <td><span class="badge bg-secondary">${rule.host_port}</span></td>
+                <td>${rule.guest_ip}:${rule.guest_port}</td>
+                <td><small>${rule.vm_name || '-'}</small></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteNetworkRule('${protocol}', ${rule.host_port})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+
+        document.getElementById('tcpRulesBody').innerHTML = data.tcp.map(r => renderRow(r, 'tcp')).join('');
+        document.getElementById('udpRulesBody').innerHTML = data.udp.map(r => renderRow(r, 'udp')).join('');
+    }
+
+    document.getElementById('addNetworkRuleForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const vmId = document.getElementById('ruleVmId').value;
+        const payload = {
+            protocol: document.getElementById('ruleProtocol').value,
+            host_port: parseInt(document.getElementById('ruleHostPort').value),
+            guest_ip: document.getElementById('ruleGuestIP').value,
+            guest_port: parseInt(document.getElementById('ruleGuestPort').value),
+            vm_id: vmId ? parseInt(vmId) : null
+        };
+
+        try {
+            await api.post('/network/forwarding', payload);
+            alert('Rule added successfully! Service restarted.');
+            document.getElementById('addNetworkRuleForm').reset();
+            loadNetworkRules();
+        } catch(err) {
+            alert('Failed to add rule: ' + (err.response?.data?.detail || err.message));
+        }
+    });
+
+    async function deleteNetworkRule(protocol, hostPort) {
+        if (!confirm(`Are you sure you want to delete the forwarding rule for Host Port ${hostPort}?`)) return;
+        try {
+            await api.delete(`/network/forwarding/${protocol}/${hostPort}`);
+            alert('Rule deleted successfully!');
+            loadNetworkRules();
+        } catch(err) {
+            alert('Failed to delete rule: ' + (err.response?.data?.detail || err.message));
+        }
+    }
+
+    // Load network rules when tab is clicked
+    document.getElementById('network-tab').addEventListener('shown.bs.tab', function (event) {
+        loadNetworkRules();
+    });
+
+    async function loadLogs() {
+        try {
+            const res = await api.get('/admin/audit_logs');
+            const tbody = document.getElementById('logsTableBody');
+            tbody.innerHTML = res.data.map(log => `
+                <tr>
+                    <td>${new Date(log.timestamp).toLocaleString()}</td>
+                    <td>${log.user_id}</td>
+                    <td><span class="badge bg-secondary">${log.action}</span></td>
+                    <td>${log.vm_id || '-'}</td>
+                    <td>${log.details || ''}</td>
+                </tr>
+            `).join('');
+        } catch(err) { console.error("Failed to load logs", err); }
+    }
+    
+    document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            await api.post('/admin/users', {
+                username: document.getElementById('newUsername').value,
+                password: document.getElementById('newPassword').value,
+                role: document.getElementById('newRole').value,
+                discord_webhook_url: document.getElementById('newWebhook').value || null
+            });
+            loadUsers();
+            e.target.reset();
+        } catch(err) { alert('Failed to create user: ' + (err.response?.data?.detail || err.message)); }
+    });
+    
+    document.getElementById('createVMForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const ownerId = document.getElementById('vmOwner').value;
+            const expiration = document.getElementById('vmExpiration').value;
+            await api.post('/admin/vms', {
+                name: document.getElementById('vmName').value,
+                vmx_path: document.getElementById('vmPath').value,
+                owner_id: ownerId ? parseInt(ownerId) : null,
+                expiration_date: expiration ? expiration : null
+            });
+            loadVMs();
+            e.target.reset();
+        } catch(err) { alert('Failed to register VM: ' + (err.response?.data?.detail || err.message)); }
+    });
+    
+    // Initial load
+    (async () => {
+        // Populate sidebar user pill
+        try {
+            const me = await api.get('/auth/me');
+            if (window.setSidebarUser) setSidebarUser(me.data.username, me.data.role);
+        } catch(e) {}
+
+        await loadUsers();
+        await loadVMs();
+        await loadLogs();
+        updateSystemStats();
+        setInterval(updateSystemStats, 5000);
+    })();
+
+    async function updateSystemStats() {
+        try {
+            const res = await api.get('/admin/stats');
+            const s = res.data;
+            
+            // CPU
+            document.getElementById('cpuVal').textContent = s.cpu + '%';
+            document.getElementById('cpuBar').style.width = s.cpu + '%';
+            
+            // RAM
+            document.getElementById('ramVal').textContent = s.ram.percent + '%';
+            document.getElementById('ramText').textContent = `${s.ram.used} / ${s.ram.total} GB`;
+            document.getElementById('ramBar').style.width = s.ram.percent + '%';
+            
+            // Disk
+            document.getElementById('diskVal').textContent = s.disk.percent + '%';
+            document.getElementById('diskText').textContent = `${s.disk.used} / ${s.disk.total} GB`;
+            document.getElementById('diskBar').style.width = s.disk.percent + '%';
+            
+            // Network
+            if (s.net) {
+                const now = Date.now();
+                if (window.lastNet && window.lastTime) {
+                    const timeDiff = (now - window.lastTime) / 1000; // seconds
+                    if (timeDiff > 0) {
+                        const recvSpeed = (s.net.recv - window.lastNet.recv) / timeDiff; // bytes/sec
+                        const sentSpeed = (s.net.sent - window.lastNet.sent) / timeDiff;
+                        
+                        document.getElementById('netIn').textContent = formatSpeed(recvSpeed);
+                        document.getElementById('netOut').textContent = formatSpeed(sentSpeed);
+                    }
+                }
+                
+                document.getElementById('totalRecv').textContent = formatBytes(s.net.recv);
+                document.getElementById('totalSent').textContent = formatBytes(s.net.sent);
+                
+                window.lastNet = s.net;
+                window.lastTime = now;
+            }
+            
+        } catch(err) {
+            console.error("Stats error", err);
+        }
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function formatSpeed(bytesPerSec) {
+        return formatBytes(bytesPerSec) + '/s';
+    }
+
+    document.getElementById('provisionVMForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('provVmName').value;
+        const ownerId = document.getElementById('provVmOwner').value;
+        const cloneType = document.getElementById('provCloneType').value;
+        const cpuCores = parseInt(document.getElementById('provCpuCores').value);
+        const ramMb = parseInt(document.getElementById('provRamMb').value);
+        const btn = e.target.querySelector('button[type="submit"]');
+        
+        if (!ownerId) {
+            alert("Please assign an owner.");
+            return;
+        }
+        
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Provisioning...';
+        
+        try {
+            await api.post('/admin/vms/provision', {
+                name: name,
+                owner_id: parseInt(ownerId),
+                clone_type: cloneType,
+                cpu_cores: cpuCores,
+                ram_mb: ramMb
+            });
+            const modal = bootstrap.Modal.getInstance(document.getElementById('provisionVMModal'));
+            modal.hide();
+            loadVMs();
+            alert('VM Provisioned Successfully!');
+            e.target.reset();
+        } catch(err) {
+            alert('Provisioning failed: ' + (err.response?.data?.detail || err.message));
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
+
+    async function openNetConfig(id) {
+        document.getElementById('netConfigVmId').value = id;
+        
+        // Auto-fill Gateway and DNS
+        document.getElementById('netGateway').value = "192.168.119.2";
+        document.getElementById('netDNS').value = "1.1.1.1, 1.0.0.1";
+        
+        const input = document.getElementById('netStaticIP');
+        input.placeholder = "Loading...";
+        input.value = "";
+        
+        // Show Modal IMMEDIATELY so user doesn't think it's broken
+        const modal = new bootstrap.Modal(document.getElementById('netConfigModal'));
+        modal.show();
+
+        // Check saved Internal IP first (Persistence)
+        const vm = currentVMs.find(v => v.id === id);
+        if (vm && vm.internal_ip) {
+            input.value = vm.internal_ip;
+        }
+        
+        // Attempt to auto-detect current IP (as backup or verification)
+        try {
+            const res = await api.get(`/admin/vms/${id}/guest_ip`);
+            if (res.data.ip && res.data.ip !== "Unknown (Tools not ready?)") {
+                 // If we have no saved IP, use the live one
+                 if (!input.value) {
+                     input.value = res.data.ip;
+                 } else if (input.value !== res.data.ip) {
+                     // Optional: Could warn user that Live IP != Saved IP
+                     console.warn(`Live IP (${res.data.ip}) differs from Saved IP (${input.value})`);
+                 }
+            } else {
+                 if (!input.value) input.placeholder = "192.168.119.x";
+            }
+        } catch (e) {
+            console.error("Failed to fetch IP (Normal if VM has no IP)", e);
+            if (!input.value) input.placeholder = "192.168.119.x";
+        }
+    }
+
+    document.getElementById('netConfigForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('netConfigVmId').value;
+        const ip = document.getElementById('netStaticIP').value;
+        const gateway = document.getElementById('netGateway').value;
+        const dns = document.getElementById('netDNS').value.split(',').map(s => s.trim());
+        const btn = e.target.querySelector('button[type="submit"]');
+        
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying...';
+
+        try {
+            const res = await api.post(`/vms/${id}/static_ip`, {
+                ip, gateway, dns
+            });
+            alert(res.data.message);
+            bootstrap.Modal.getInstance(document.getElementById('netConfigModal')).hide();
+        } catch (err) {
+            alert("Failed to set IP: " + (err.response?.data?.detail || err.message));
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    });
 </script>
 {% endblock %}

@@ -28,7 +28,7 @@ class VMService:
                 continue
         return data.decode('utf-8', errors='replace')
 
-    def _run_command(self, command: str, vmx_path: str = None, params: list = None, guest_user: str = None, guest_pass: str = None):
+    def _run_command(self, command: str, vmx_path: str = None, params: list = None, guest_user: str = None, guest_pass: str = None, timeout: int = 30):
         cmd = [self.vmrun_path, "-T", "ws"] # -T ws for Workstation
         
         # Add guest credentials if provided
@@ -55,48 +55,79 @@ class VMService:
         logger.info(f"Executing: {' '.join(log_cmd)}")
         
         try:
-            # shell=False is safer.
-            # Capture as bytes (text=False) to handle encoding manually
             result = subprocess.run(
                 cmd, 
                 capture_output=True, 
                 text=False, 
-                check=True
+                check=True,
+                timeout=timeout  # CRITICAL: prevents vmrun from hanging and locking .vmx files
             )
             return self._decode_output(result.stdout).strip()
+        except subprocess.TimeoutExpired as e:
+            # Kill the hung process and any children to release .vmx file lock
+            logger.error(f"vmrun {command} timed out after {timeout}s — killing process")
+            try:
+                if e.process:
+                    e.process.kill()
+            except Exception:
+                pass
+            # Also hunt down any lingering vmrun processes holding this vmx
+            if vmx_path:
+                self._kill_hanging_vmrun(vmx_path, command)
+            raise Exception(f"VM Operation Timed Out: {command} exceeded {timeout}s")
         except subprocess.CalledProcessError as e:
-            # Decode stderr/stdout for logging
             stderr_str = self._decode_output(e.stderr)
             stdout_str = self._decode_output(e.stdout)
-            
-            logger.error(f"Error running vmrun {command}: {stderr_str}")
-            if stdout_str:
-                logger.error(f"Stdout: {stdout_str}")
-            # Clean error message
             err_msg = stderr_str.strip() if stderr_str else (stdout_str.strip() if stdout_str else "Unknown error")
+
+            # Suppress noisy-but-expected messages that happen constantly during reinstall/boot
+            # "VMware Tools are not running" is normal while the VM is starting up
+            _quiet_patterns = [
+                "vmware tools are not running",
+                "tools are not running",
+                "vmware tools is not running",
+            ]
+            is_expected = any(p in err_msg.lower() for p in _quiet_patterns)
+
+            if not is_expected:
+                logger.error(f"Error running vmrun {command}: {stderr_str}")
+                if stdout_str:
+                    logger.error(f"Stdout: {stdout_str}")
+            else:
+                logger.debug(f"vmrun {command}: Tools not ready yet (expected during boot)")
+
             raise Exception(f"VM Operation Failed: {err_msg}")
         except FileNotFoundError:
              raise Exception(f"vmrun executable not found at {self.vmrun_path}")
 
+    def _kill_hanging_vmrun(self, vmx_path: str, command: str):
+        """Kill any hanging vmrun processes that may be holding a lock on the vmx file."""
+        try:
+            vmx_lower = vmx_path.lower()
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    name = (proc.info.get('name') or '').lower()
+                    cmdline = proc.info.get('cmdline') or []
+                    if 'vmrun' in name:
+                        cmdline_str = ' '.join(cmdline).lower()
+                        if vmx_lower in cmdline_str and command.lower() in cmdline_str:
+                            logger.warning(f"Killing hanging vmrun PID {proc.info['pid']}: {cmdline_str[:100]}")
+                            proc.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception as e:
+            logger.error(f"Error killing hanging vmrun: {e}")
+
     def start_vm(self, vmx_path: str):
-        # nogui starts it headless.
-        # Changed to gui to see if it fixes the black screen issue.
-        # Reverted to nogui because gui blocks on dialogs and we have autoAnswer enabled now.
-        if not os.path.isfile(vmx_path) or not vmx_path.lower().endswith(".vmx"):
-            raise Exception(f"Invalid VMX path: {vmx_path}. Provide a .vmx file path.")
-        return self._run_command("start", vmx_path, ["nogui"])
+        return self._run_command("start", vmx_path, ["nogui"], timeout=60)
 
     def stop_vm(self, vmx_path: str, hard: bool = False):
         mode = "hard" if hard else "soft"
-        if not os.path.isfile(vmx_path) or not vmx_path.lower().endswith(".vmx"):
-            raise Exception(f"Invalid VMX path: {vmx_path}. Provide a .vmx file path.")
-        return self._run_command("stop", vmx_path, [mode])
+        return self._run_command("stop", vmx_path, [mode], timeout=60)
 
     def restart_vm(self, vmx_path: str, hard: bool = False):
         mode = "hard" if hard else "soft"
-        if not os.path.isfile(vmx_path) or not vmx_path.lower().endswith(".vmx"):
-            raise Exception(f"Invalid VMX path: {vmx_path}. Provide a .vmx file path.")
-        return self._run_command("reset", vmx_path, [mode])
+        return self._run_command("reset", vmx_path, [mode], timeout=60)
 
     def list_running_vms(self):
         output = self._run_command("list")
@@ -172,38 +203,24 @@ class VMService:
         return self._run_command("captureScreen", vmx_path, [target_path], guest_user=guest_user, guest_pass=guest_pass)
 
     def get_guest_ip(self, vmx_path: str, guest_user: str = None, guest_pass: str = None):
-        """Gets the IP address of the guest OS."""
-        # vmrun -T ws getGuestIPAddress <path> [-wait]
-        # Note: Requires VMware Tools to be running in the guest.
-        # We removed -wait to avoid blocking.
+        """Gets the IP address of the guest OS.
+        Short timeout — called repeatedly in a polling loop. Must never block.
+        """
         try:
-            return self._run_command("getGuestIPAddress", vmx_path, [], guest_user=guest_user, guest_pass=guest_pass)
+            return self._run_command("getGuestIPAddress", vmx_path, [], 
+                                     guest_user=guest_user, guest_pass=guest_pass,
+                                     timeout=8)  # 8s max — if Tools aren't ready it returns fast anyway
         except Exception as e:
-            # If it fails, it might be because tools aren't ready or installed.
-            # logger.warning(f"Failed to get IP for {vmx_path}: {e}") # Reduce log noise during polling
             return None
 
-    def list_snapshots(self, vmx_path: str):
-        """Lists snapshots for a VM. 
-        Returns a list of snapshot names. 
-        Note: vmrun listSnapshots output is like:
-        Total snapshots: 1
-        Snapshot Name
-        """
-        output = self._run_command("listSnapshots", vmx_path)
-        lines = output.splitlines()
-        snapshots = []
-        if len(lines) > 1:
-            for line in lines[1:]:
-                if line.strip():
-                    snapshots.append(line.strip())
-        return snapshots
-
     def create_snapshot(self, vmx_path: str, name: str):
-        return self._run_command("snapshot", vmx_path, [name])
+        return self._run_command("snapshot", vmx_path, [name], timeout=900)
+
+    def revert_snapshot(self, vmx_path: str, name: str):
+        return self._run_command("revertToSnapshot", vmx_path, [name], timeout=120)
 
     def delete_snapshot(self, vmx_path: str, name: str):
-        return self._run_command("deleteSnapshot", vmx_path, [name])
+        return self._run_command("deleteSnapshot", vmx_path, [name], timeout=300)
 
     def delete_vm(self, vmx_path: str):
         """
@@ -251,15 +268,15 @@ class VMService:
             params.append(f"-snapshot={snapshot_name}")
         params.append(f"-cloneName={clone_name}")
         
-        return self._run_command("clone", source_vmx, params)
+        return self._run_command("clone", source_vmx, params, timeout=600)
 
     def enable_vnc(self, vmx_path: str, port: int, password: str = None):
         """
         Enables VNC in the .vmx file.
         Note: Requires VM restart to take effect.
         """
-        if not os.path.isfile(vmx_path) or not vmx_path.lower().endswith(".vmx"):
-            raise Exception(f"Invalid VMX path: {vmx_path}. Provide a .vmx file path.")
+        if not os.path.exists(vmx_path):
+            raise Exception("VMX file not found")
             
         with open(vmx_path, 'r') as f:
             lines = f.readlines()
@@ -286,8 +303,8 @@ class VMService:
         cpu_count: Number of cores (optional)
         memory_mb: RAM in MB (optional)
         """
-        if not os.path.isfile(vmx_path) or not vmx_path.lower().endswith(".vmx"):
-            raise Exception(f"Invalid VMX path: {vmx_path}. Provide a .vmx file path.")
+        if not os.path.exists(vmx_path):
+            raise Exception("VMX file not found")
             
         with open(vmx_path, 'r') as f:
             lines = f.readlines()
@@ -330,17 +347,27 @@ class VMService:
         """
         Reverts the VM to a named snapshot.
         """
-        return self._run_command("revertToSnapshot", vmx_path, [snapshot_name])
+        return self._run_command("revertToSnapshot", vmx_path, [snapshot_name], timeout=120)
+
+    def list_snapshots(self, vmx_path: str) -> list:
+        """
+        Lists all snapshots for a VM.
+        Returns a list of snapshot names.
+        """
+        output = self._run_command("listSnapshots", vmx_path)
+        # Output format:
+        # Total snapshots: 1
+        # SnapshotName
+        lines = output.splitlines()
+        snapshots = []
+        if len(lines) > 1:
+            for line in lines[1:]:
+                name = line.strip()
+                if name:
+                    snapshots.append(name)
+        return snapshots
 
     def run_script_in_guest(self, vmx_path: str, username: str, password: str, script_text: str, interpreter: str = "powershell"):
-        """
-        Runs a script in the guest OS.
-        interpreter: 'powershell' or 'cmd' or 'bash'
-        """
-        # Save script to a temp file on host? 
-        # vmrun runScriptInGuest <path to vmx> <interpreter path> <script text>
-        
-        # Use full path for PowerShell to avoid "A file was not found" errors
         interp_path = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
         if interpreter == "cmd":
              interp_path = "C:\\Windows\\System32\\cmd.exe"
@@ -352,7 +379,8 @@ class VMService:
             vmx_path,
             [interp_path, script_text],
             guest_user=username,
-            guest_pass=password
+            guest_pass=password,
+            timeout=120  # scripts can take time but shouldn't hang forever
         )
 
     def change_guest_password(self, vmx_path: str, username: str, new_password: str, current_user: str, current_pass: str):
@@ -372,40 +400,6 @@ class VMService:
             ["user", username, new_password],
             interactive=False
         )
-
-    def set_account_lockout_policy(self, vmx_path: str, threshold: int, duration_minutes: int, reset_window_minutes: int, current_user: str, current_pass: str):
-        try:
-            return self.run_program_in_guest(
-                vmx_path,
-                current_user,
-                current_pass,
-                "C:\\Windows\\System32\\net.exe",
-                ["accounts", f"/lockoutthreshold:{threshold}", f"/lockoutduration:{duration_minutes}", f"/lockoutwindow:{reset_window_minutes}"],
-                interactive=False
-            )
-        except Exception as e:
-            msg = str(e).lower()
-            if "invalid user name or password" not in msg:
-                raise
-            variants = [current_user, f".\\{current_user}"]
-            if current_user.lower() != "administrator":
-                variants.extend(["Administrator", ".\\Administrator"])
-            last_err = e
-            for user_variant in variants:
-                try:
-                    return self.run_program_in_guest(
-                        vmx_path,
-                        user_variant,
-                        current_pass,
-                        "C:\\Windows\\System32\\net.exe",
-                        ["accounts", f"/lockoutthreshold:{threshold}", f"/lockoutduration:{duration_minutes}", f"/lockoutwindow:{reset_window_minutes}"],
-                        interactive=False
-                    )
-                except Exception as e2:
-                    last_err = e2
-                    if "invalid user name or password" not in str(e2).lower():
-                        raise
-            raise last_err
 
     def get_vm_mac(self, vmx_path: str) -> str:
         """
@@ -560,7 +554,8 @@ class VMService:
             vmx_path,
             final_args,
             guest_user=username,
-            guest_pass=password
+            guest_pass=password,
+            timeout=120
         )
 
 

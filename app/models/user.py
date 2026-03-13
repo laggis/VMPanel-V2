@@ -1,7 +1,6 @@
 from sqlmodel import SQLModel, Field
 from typing import Optional
 from enum import Enum
-from sqlmodel import Column, JSON
 
 class Role(str, Enum):
     ADMIN = "admin"
@@ -15,5 +14,3 @@ class User(SQLModel, table=True):
     is_active: bool = Field(default=True)
     discord_webhook_url: Optional[str] = Field(default=None, max_length=512)
     discord_webhook_public: Optional[str] = Field(default=None, max_length=512)
-    parent_id: Optional[int] = Field(default=None)
-    permissions: Optional[str] = Field(default=None)

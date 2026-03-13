@@ -76,18 +76,14 @@ class DHCPService:
             logger.info("DHCP configuration already up to date.")
 
     def restart_dhcp_service(self):
-        """
-        Restarts the VMnetDHCP service.
-        """
         logger.info("Restarting VMwareDHCP service...")
         try:
-            # Using net stop/start is reliable
-            # We ignore errors on stop (service might be stopped)
-            subprocess.run(["net", "stop", "VMnetDHCP"], check=False, capture_output=True)
-            
-            # We expect start to succeed
-            result = subprocess.run(["net", "start", "VMnetDHCP"], check=True, capture_output=True, text=True)
+            subprocess.run(["net", "stop", "VMnetDHCP"], check=False, capture_output=True, timeout=30)
+            result = subprocess.run(["net", "start", "VMnetDHCP"], check=True, capture_output=True, text=True, timeout=30)
             logger.info(f"VMwareDHCP service restarted successfully: {result.stdout}")
+        except subprocess.TimeoutExpired:
+            logger.error("Timed out waiting for VMnetDHCP service restart")
+            raise Exception("VMware DHCP service restart timed out")
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to restart VMwareDHCP service: {e.stderr}")
             raise Exception(f"Failed to restart VMware DHCP service: {e.stderr}")

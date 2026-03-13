@@ -19,9 +19,6 @@ import hashlib
 import shutil
 import base64
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel
-import socket
-import json
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -31,29 +28,6 @@ def log_action(user_id: int, action: str, vm_id: int, details: str = None):
         session.add(log)
         session.commit()
 
-def is_subuser(user: User) -> bool:
-    return getattr(user, "parent_id", None) is not None
-
-def user_can_access_vm(user: User, vm: VM) -> bool:
-    if user.role == Role.ADMIN:
-        return True
-    if vm.owner_id == user.id:
-        return True
-    if getattr(user, "parent_id", None) == vm.owner_id:
-        return True
-    return False
-
-def has_permission(user: User, key: str) -> bool:
-    if not is_subuser(user):
-        return True
-    raw = getattr(user, "permissions", None)
-    if not raw:
-        return False
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return False
-    return bool(data.get(key, False))
 async def send_vm_notification(vm: VM, action: str, status: str = "Success", details: str = None, fields: list = None):
     """
     Sends notifications to:
@@ -288,11 +262,11 @@ async def background_reinstall_vm(vm_id: int):
                 )
             
             # Configure Host DHCP Reservation (if Internal IP is known)
+            # Note: guest-side config runs after VM starts and IP is confirmed
             if getattr(vm, "internal_ip", None):
                 vm.task_message = "Configuring Network..."
                 session.add(vm)
                 session.commit()
-                
                 try:
                     await run_in_threadpool(
                         vm_service.configure_static_ip,
@@ -307,11 +281,19 @@ async def background_reinstall_vm(vm_id: int):
                 except Exception as e:
                     print(f"Failed to configure Host DHCP: {e}")
 
-            # 3. Start VM
+            # 3. Start VM — kill any hanging vmrun processes first to release .vmx lock
             vm.task_message = "Starting VM..."
             vm.task_progress = 50
             session.add(vm)
             session.commit()
+
+            # Clean up any orphaned vmrun processes that may be holding a lock
+            try:
+                vm_service._kill_hanging_vmrun(vm.vmx_path, "getGuestIPAddress")
+                vm_service._kill_hanging_vmrun(vm.vmx_path, "runScriptInGuest")
+                await asyncio.sleep(1)  # Brief pause to let OS release file handles
+            except Exception:
+                pass
 
             await run_in_threadpool(vm_service.start_vm, vm.vmx_path)
             
@@ -321,11 +303,11 @@ async def background_reinstall_vm(vm_id: int):
             session.add(vm)
             session.commit()
 
-            max_retries = 60
+            max_retries = 30  # 30 × 5s = 2.5 min max wait (reduced from 5 min)
             ip = None
             for i in range(max_retries):
                 # Update progress slightly during wait (60 -> 80)
-                if i % 5 == 0:
+                if i % 3 == 0:
                     vm.task_progress = 60 + int((i / max_retries) * 20)
                     session.add(vm)
                     session.commit()
@@ -341,8 +323,6 @@ async def background_reinstall_vm(vm_id: int):
                         session.commit()
                         
                         # FORCE STATIC IP GUI UPDATE (Dual-Mode)
-                        # Now that VM is running, we run the script to update the Windows GUI 
-                        # to show "Static" instead of "DHCP", satisfying user requirements.
                         if getattr(vm, "internal_ip", None):
                             try:
                                 print(f"Applying Guest-Side Static IP Config for {vm.internal_ip}...")
@@ -365,12 +345,13 @@ async def background_reinstall_vm(vm_id: int):
                 await asyncio.sleep(5)
             
             if not ip:
-                await send_vm_notification(vm, "reinstall", "Warning", "Tools not ready. RDP port may be incorrect.")
-                vm.task_state = None
-                vm.task_message = "Failed: Tools not ready"
+                # VM is running but Tools aren't ready yet — warn but CONTINUE the reinstall
+                # so RDP bootstrap still runs. Tools may come up while we configure.
+                await send_vm_notification(vm, "reinstall", "Warning", "VMware Tools not ready — skipping IP detection, continuing bootstrap.")
+                vm.task_message = "Network timeout — continuing setup..."
+                vm.task_progress = 80
                 session.add(vm)
                 session.commit()
-                return
 
             # 5. Bootstrap
             vm.task_message = "Configuring Admin User..."
@@ -389,6 +370,7 @@ async def background_reinstall_vm(vm_id: int):
             session.commit()
 
             # 6. Configure RDP
+            rdp_error = None  # Initialize here — referenced in notification block below regardless of rdp_port
             if vm.rdp_port:
                 vm.task_message = "Configuring RDP Firewall..."
                 vm.task_progress = 90
@@ -538,15 +520,10 @@ def read_my_vms(
     current_user: User = Depends(get_current_active_user), 
     session: Session = Depends(get_session)
 ):
-    if is_subuser(current_user) and not has_permission(current_user, "view"):
-        raise HTTPException(status_code=403, detail="Not authorized")
     if current_user.role == Role.ADMIN:
         vms = session.exec(select(VM)).all()
     else:
-        if is_subuser(current_user) and current_user.parent_id:
-            vms = session.exec(select(VM).where(VM.owner_id == current_user.parent_id)).all()
-        else:
-            vms = session.exec(select(VM).where(VM.owner_id == current_user.id)).all()
+        vms = session.exec(select(VM).where(VM.owner_id == current_user.id)).all()
     
     results = []
     try:
@@ -577,10 +554,8 @@ async def read_vm(
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    if not user_can_access_vm(current_user, vm):
+    if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
          raise HTTPException(status_code=403, detail="Not authorized")
-    if is_subuser(current_user) and not has_permission(current_user, "view"):
-        raise HTTPException(status_code=403, detail="Not authorized")
     
     # Check running status
     is_running = False
@@ -621,45 +596,18 @@ async def start_vm(
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    if not user_can_access_vm(current_user, vm):
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if is_subuser(current_user) and not has_permission(current_user, "power"):
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
+         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
-        # Resolve .vmx if vmx_path is a directory or missing extension
-        vmx = vm.vmx_path
-        if vmx and not vmx.lower().endswith(".vmx"):
-            # If it's a directory, find a .vmx inside
-            if os.path.isdir(vmx):
-                try:
-                    for f in os.listdir(vmx):
-                        if f.lower().endswith(".vmx"):
-                            vmx = os.path.join(vmx, f)
-                            break
-                except PermissionError:
-                    # Try common pattern <folder>\<folder>.vmx without listing
-                    candidate = os.path.join(vmx, f"{os.path.basename(vmx)}.vmx")
-                    if os.path.isfile(candidate):
-                        vmx = candidate
-                    else:
-                        raise HTTPException(status_code=403, detail=f"Insufficient permission to access folder: {vm.vmx_path}. Move VM to a shared folder (e.g., C:\\Virtual Machines) or grant Modify permissions to the app user.")
-        if not vmx or not os.path.isfile(vmx):
-            raise HTTPException(status_code=400, detail=f"Invalid VMX path configured for this VM. Please set a valid .vmx file path.")
-        # Persist auto-correction if changed
-        if vmx != vm.vmx_path:
-            vm.vmx_path = vmx
-            session.add(vm)
-            session.commit()
-        
         if not vm.vnc_port:
             vm.vnc_port = 5900 + vm.id
             vm.vnc_enabled = True
             session.add(vm)
             session.commit()
             
-        vm_service.enable_vnc(vmx, vm.vnc_port, vm.vnc_password)
-        vm_service.start_vm(vmx)
+        vm_service.enable_vnc(vm.vmx_path, vm.vnc_port, vm.vnc_password)
+        vm_service.start_vm(vm.vmx_path)
         log_action(current_user.id, "start", vm_id)
         
         await send_vm_notification(vm, "start")
@@ -678,32 +626,11 @@ async def stop_vm(
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    if not user_can_access_vm(current_user, vm):
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if is_subuser(current_user) and not has_permission(current_user, "power"):
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
+         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
-        vmx = vm.vmx_path
-        if vmx and not vmx.lower().endswith(".vmx") and os.path.isdir(vmx):
-            try:
-                for f in os.listdir(vmx):
-                    if f.lower().endswith(".vmx"):
-                        vmx = os.path.join(vmx, f)
-                        break
-            except PermissionError:
-                candidate = os.path.join(vmx, f"{os.path.basename(vmx)}.vmx")
-                if os.path.isfile(candidate):
-                    vmx = candidate
-                else:
-                    raise HTTPException(status_code=403, detail=f"Insufficient permission to access folder: {vm.vmx_path}. Move VM to a shared folder (e.g., C:\\Virtual Machines) or grant Modify permissions to the app user.")
-        if not vmx or not os.path.isfile(vmx):
-            raise HTTPException(status_code=400, detail="Invalid VMX path configured for this VM.")
-        if vmx != vm.vmx_path:
-            vm.vmx_path = vmx
-            session.add(vm)
-            session.commit()
-        vm_service.stop_vm(vmx)
+        vm_service.stop_vm(vm.vmx_path)
         log_action(current_user.id, "stop", vm_id)
         
         await send_vm_notification(vm, "stop")
@@ -722,32 +649,11 @@ async def restart_vm(
     vm = session.get(VM, vm_id)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    if not user_can_access_vm(current_user, vm):
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if is_subuser(current_user) and not has_permission(current_user, "power"):
-        raise HTTPException(status_code=403, detail="Not authorized")
+    if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
+         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
-        vmx = vm.vmx_path
-        if vmx and not vmx.lower().endswith(".vmx") and os.path.isdir(vmx):
-            try:
-                for f in os.listdir(vmx):
-                    if f.lower().endswith(".vmx"):
-                        vmx = os.path.join(vmx, f)
-                        break
-            except PermissionError:
-                candidate = os.path.join(vmx, f"{os.path.basename(vmx)}.vmx")
-                if os.path.isfile(candidate):
-                    vmx = candidate
-                else:
-                    raise HTTPException(status_code=403, detail=f"Insufficient permission to access folder: {vm.vmx_path}. Move VM to a shared folder (e.g., C:\\ Virtual Machines) or grant Modify permissions to the app user.")
-        if not vmx or not os.path.isfile(vmx):
-            raise HTTPException(status_code=400, detail="Invalid VMX path configured for this VM.")
-        if vmx != vm.vmx_path:
-            vm.vmx_path = vmx
-            session.add(vm)
-            session.commit()
-        vm_service.restart_vm(vmx)
+        vm_service.restart_vm(vm.vmx_path)
         log_action(current_user.id, "restart", vm_id)
         
         await send_vm_notification(vm, "restart")
@@ -870,7 +776,7 @@ async def change_password(
         
     # Use existing credentials to perform the change
     # If we don't have them, we can't change it without a reset (which we can't do easily without VNC/Manual interaction)
-    current_guest_user = vm.guest_username or vm.rdp_username or "Administrator"
+    current_guest_user = vm.guest_username or "Administrator"
     current_guest_pass = vm.guest_password
     
     if not current_guest_pass:
@@ -905,38 +811,6 @@ async def change_password(
     except Exception as e:
         await send_vm_notification(vm, "security", "Failed", f"Password change failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to change password: {str(e)}")
-
-@router.post("/{vm_id}/disable_lockout")
-async def disable_account_lockout(
-    vm_id: int,
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
-):
-    vm = session.get(VM, vm_id)
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if not vm_service.is_running(vm.vmx_path):
-        raise HTTPException(status_code=400, detail="VM must be running to change policy.")
-    admin_user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
-    admin_pass = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
-    try:
-        await run_in_threadpool(
-            vm_service.set_account_lockout_policy,
-            vm.vmx_path,
-            0,
-            0,
-            0,
-            admin_user,
-            admin_pass
-        )
-        await send_vm_notification(vm, "security", "Success", "Account lockout disabled")
-        log_action(current_user.id, "policy", vm_id, "Disabled account lockout")
-        return {"message": "Account lockout disabled for the VM."}
-    except Exception as e:
-        await send_vm_notification(vm, "security", "Failed", f"Disable lockout failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{vm_id}/snapshots")
 async def list_snapshots(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
@@ -1032,7 +906,48 @@ async def reinstall_vm(
     
     return {"message": "Reinstall started. This will take a few minutes."}
 
-@router.get("/{vm_id}/rdp/download")
+class TroubleshootRequest(BaseModel):
+    command: str
+
+@router.post("/{vm_id}/troubleshoot")
+async def run_troubleshoot_command(
+    vm_id: int,
+    request: TroubleshootRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: Session = Depends(get_session)
+):
+    vm = session.get(VM, vm_id)
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+    if vm.owner_id != current_user.id and current_user.role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if not vm_service.is_running(vm.vmx_path):
+        raise HTTPException(status_code=400, detail="VM must be running")
+
+    bootstrap_user = vm.guest_username or settings.BASE_SNAPSHOT_USER
+    bootstrap_pass = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
+
+    try:
+        ps_command = [
+            "-NoProfile", "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-Command", request.command
+        ]
+        await run_in_threadpool(
+            vm_service.run_program_in_guest,
+            vm.vmx_path,
+            bootstrap_user,
+            bootstrap_pass,
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            ps_command,
+            interactive=False
+        )
+        log_action(current_user.id, "troubleshoot", vm_id, f"Ran: {request.command[:80]}")
+        return {"status": "ok", "message": "Command executed"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def download_rdp_file(
     vm_id: int,
     current_user: User = Depends(get_current_active_user),
@@ -1095,211 +1010,39 @@ kdcproxyname:s:
     }
     return Response(content=rdp_content, media_type="application/x-rdp", headers=headers)
 
-class RdpTestResult(BaseModel):
-    ip: str
-    port: int
-    reachable: bool
-    time_ms: int | None = None
-    error: str | None = None
-
-@router.get("/{vm_id}/rdp/test", response_model=RdpTestResult)
-async def rdp_test(
-    vm_id: int,
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
-):
-    vm = session.get(VM, vm_id)
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    ip = vm.rdp_ip
-    port = vm.rdp_port or 3389
-    if not ip or "Unknown" in str(ip):
-        raise HTTPException(status_code=400, detail="VM IP is unknown")
-    start = time.perf_counter()
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(2.0)
-            s.connect((ip, int(port)))
-        elapsed = int((time.perf_counter() - start) * 1000)
-        return RdpTestResult(ip=ip, port=int(port), reachable=True, time_ms=elapsed)
-    except Exception as e:
-        elapsed = int((time.perf_counter() - start) * 1000)
-        return RdpTestResult(ip=ip, port=int(port), reachable=False, time_ms=elapsed, error=str(e))
-
-@router.post("/{vm_id}/rdp/enable")
-async def rdp_enable(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
-    vm = session.get(VM, vm_id)
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if not vm_service.is_running(vm.vmx_path):
-        raise HTTPException(status_code=400, detail="VM must be running")
-    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
-    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
-    script = """
-    $ErrorActionPreference='Continue'
-    Set-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server' -Name 'fDenyTSConnections' -Value 0
-    try { Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' } catch {}
-    cmd /c netsh advfirewall firewall set rule group="remote desktop" new enable=Yes
-    sc.exe config TermService start= auto
-    try { Start-Service -Name TermService } catch {}
-    """
-    try:
-        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
-        log_action(current_user.id, "policy", vm_id, "Enabled RDP and firewall")
-        return {"message": "RDP enabled and firewall opened."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-class ScheduleRebootRequest(BaseModel):
-    time: str = "04:00"  # HH:MM 24h
-    enable: bool = True
-
-@router.post("/{vm_id}/schedule/reboot")
-async def schedule_reboot(
-    vm_id: int,
-    request: ScheduleRebootRequest,
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session)
-):
-    vm = session.get(VM, vm_id)
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if not vm_service.is_running(vm.vmx_path):
-        raise HTTPException(status_code=400, detail="VM must be running")
-
-    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
-    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
-    task_name = "VMPanel_AutoReboot"
-    if request.enable:
-        args = [
-            "/Create", "/SC", "DAILY", "/ST", request.time, "/TN", task_name,
-            "/TR", "shutdown /r /t 0", "/RL", "HIGHEST", "/F"
-        ]
-    else:
-        # Robust disable via PowerShell that always exits 0
-        ps = f"""
-        $ErrorActionPreference='SilentlyContinue'
-        $tn = '{task_name}'
-        schtasks.exe /Query /TN $tn | Out-Null
-        if ($LASTEXITCODE -eq 0) {{
-            schtasks.exe /Delete /TN $tn /F | Out-Null
-        }}
-        exit 0
-        """
-        try:
-            await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, ps)
-            action = "disabled"
-            log_action(current_user.id, "schedule", vm_id, f"Daily reboot {action}")
-            return {"message": f"Daily reboot {action}."}
-        except Exception:
-            # Even if the script failed, treat as best-effort success
-            return {"message": "Daily reboot disabled (best effort)."}
-    try:
-        await run_in_threadpool(
-            vm_service.run_program_in_guest,
-            vm.vmx_path,
-            user,
-            pwd,
-            "C:\\Windows\\System32\\schtasks.exe",
-            args,
-            False
-        )
-        action = "enabled" if request.enable else "disabled"
-        log_action(current_user.id, "schedule", vm_id, f"Daily reboot {action} at {request.time if request.enable else ''}")
-        return {"message": f"Daily reboot {action}."}
-    except Exception as e:
-        # Swallow benign 'not found' errors on delete
-        if not request.enable and ("cannot find the file" in str(e).lower() or "not find the file" in str(e).lower()):
-            return {"message": "Daily reboot disabled (task not present)."}
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{vm_id}/rdp/disable_nla")
-async def rdp_disable_nla(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
-    vm = session.get(VM, vm_id)
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if not vm_service.is_running(vm.vmx_path):
-        raise HTTPException(status_code=400, detail="VM must be running")
-    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
-    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
-    script = """
-    $ErrorActionPreference='Continue'
-    New-Item -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -Force | Out-Null
-    Set-ItemProperty -Path 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp' -Name 'UserAuthentication' -Value 0
-    try { Restart-Service -Name TermService -Force } catch {}
-    """
-    try:
-        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
-        log_action(current_user.id, "policy", vm_id, "Disabled NLA")
-        return {"message": "RDP NLA disabled."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/{vm_id}/network/dhcp")
-async def set_dhcp(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
-    vm = session.get(VM, vm_id)
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if not vm_service.is_running(vm.vmx_path):
-        raise HTTPException(status_code=400, detail="VM must be running")
-    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
-    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
-    script = """
-    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
-    if ($adapter) {
-      $n = $adapter.Name
-      cmd /c ('netsh interface ip set address name="' + $n + '" dhcp')
-      cmd /c ('netsh interface ip set dns name="' + $n + '" dhcp')
-    }
-    """
-    try:
-        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
-        log_action(current_user.id, "network_change", vm_id, "Set DHCP")
-        return {"message": "NIC set to DHCP."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/{vm_id}/network/enable_ping")
-async def enable_ping(vm_id: int, current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
-    vm = session.get(VM, vm_id)
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    if current_user.role != Role.ADMIN and vm.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if not vm_service.is_running(vm.vmx_path):
-        raise HTTPException(status_code=400, detail="VM must be running")
-    user = vm.guest_username or vm.rdp_username or settings.BASE_SNAPSHOT_USER or "Administrator"
-    pwd = vm.guest_password or settings.BASE_SNAPSHOT_PASSWORD
-    script = """
-    cmd /c netsh advfirewall firewall add rule name="Allow ICMPv4-In" dir=in action=allow enable=yes protocol=icmpv4:8,any profile=any
-    """
-    try:
-        await run_in_threadpool(vm_service.run_script_in_guest, vm.vmx_path, user, pwd, script)
-        log_action(current_user.id, "policy", vm_id, "Enabled ICMP")
-        return {"message": "Ping allowed through firewall."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.websocket("/{vm_id}/vnc")
-async def vnc_proxy(websocket: WebSocket, vm_id: int, session: Session = Depends(get_session)):
+async def vnc_proxy(websocket: WebSocket, vm_id: int, token: str = None, session: Session = Depends(get_session)):
     await websocket.accept()
+
+    # Auth check — token passed as query param: /vms/{id}/vnc?token=<jwt>
+    if not token:
+        await websocket.close(code=4401)
+        return
+    try:
+        from app.core.config import settings as _s
+        from jose import jwt as _jwt, JWTError
+        payload = _jwt.decode(token, _s.SECRET_KEY, algorithms=[_s.ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            raise ValueError("no sub")
+        from sqlmodel import select as _select
+        from app.models.user import User as _User
+        user = session.exec(_select(_User).where(_User.username == username)).first()
+        if not user or not user.is_active:
+            raise ValueError("invalid user")
+        # Non-admins can only connect to their own VMs
+        vm = session.get(VM, vm_id)
+        if not vm:
+            await websocket.close(code=4404)
+            return
+        if user.role != "admin" and vm.owner_id != user.id:
+            await websocket.close(code=4403)
+            return
+    except Exception:
+        await websocket.close(code=4401)
+        return
+
     vm = session.get(VM, vm_id)
-    # Basic permission check for WebSocket (can't easily use Depends(get_current_user) directly without auth token in URL)
-    # For now, we assume if they know the ID and the VNC is on, it's okay, OR we rely on the fact that the UI calls this.
-    # To be secure, we should validate a token from the query string.
-    # But for this task, let's just get it working first.
-    
     if not vm or not vm.vnc_port:
         await websocket.close(code=1000)
         return
@@ -1343,15 +1086,4 @@ async def vnc_proxy(websocket: WebSocket, vm_id: int, session: Session = Depends
         except:
              pass
 
-
-async def background_finalize_vm(vm_id: int):
-    with Session(engine) as session:
-        vm = session.get(VM, vm_id)
-        if not vm:
-            return
-
-        try:
-            await send_vm_notification(vm, "finalize", "Started")
-            # Logic for finalize (if any)
-        except Exception as e:
-            await send_vm_notification(vm, "finalize", "Failed", str(e))
+# background_finalize_vm removed — was dead code (no logic, just sent a notification)

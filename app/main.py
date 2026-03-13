@@ -7,8 +7,11 @@ from fastapi.responses import HTMLResponse
 from sqlmodel import Session, select
 from app.core.database import create_db_and_tables, engine
 from app.routers import auth, admin, vm, network
+import app.routers.scheduled_tasks as scheduled_tasks
+from app.routers.scheduled_tasks import run_scheduler
 from app.models.user import User, Role
 from app.models.vm import VM
+from app.models.scheduled_task import ScheduledTask  # noqa: F401 — ensures table is created
 from app.core.security import get_password_hash
 from app.services.notification_service import notification_service
 from contextlib import asynccontextmanager
@@ -26,10 +29,10 @@ async def check_expiring_vms():
                         
                     days_left = (vm.expiration_date - now).days
                     
-                    # Logic to determine if we should notify
+                    # Use <= so notifications still fire if server was down on the exact day
                     notification_data = None
                     
-                    if days_left == 30:
+                    if 28 <= days_left <= 30:
                         notification_data = {
                             "title": "📅 Service Expiration Notice",
                             "description": f"Your service for VM **{vm.name}** is expiring in 30 days.",
@@ -40,7 +43,7 @@ async def check_expiring_vms():
                                 {"name": "Status", "value": "Active", "inline": True}
                             ]
                         }
-                    elif days_left == 7:
+                    elif 6 <= days_left <= 7:
                         notification_data = {
                             "title": "⚠️ Service Expiration Warning",
                             "description": f"Your service for VM **{vm.name}** is expiring in 1 week.",
@@ -51,7 +54,7 @@ async def check_expiring_vms():
                                 {"name": "Time Remaining", "value": "7 Days", "inline": True}
                             ]
                         }
-                    elif days_left == 3:
+                    elif 2 <= days_left <= 3:
                         notification_data = {
                             "title": "⚠️ Service Expiration Warning",
                             "description": f"Your service for VM **{vm.name}** is expiring in 3 days.",
@@ -73,7 +76,7 @@ async def check_expiring_vms():
                                 {"name": "Action Required", "value": "Please renew immediately", "inline": False}
                             ]
                         }
-                    elif days_left == 0:
+                    elif days_left <= 0 and days_left > -2:
                         notification_data = {
                             "title": "🚨 Service Expiring Today",
                             "description": f"Your service for VM **{vm.name}** expires TODAY.",
@@ -84,7 +87,7 @@ async def check_expiring_vms():
                                 {"name": "Status", "value": "Expiring Now", "inline": True}
                             ]
                         }
-                    elif days_left == -1:
+                    elif days_left <= -1 and days_left > -3:
                         notification_data = {
                             "title": "❌ Service Expired",
                             "description": f"The service for VM **{vm.name}** has EXPIRED.",
@@ -121,10 +124,34 @@ async def lifespan(app: FastAPI):
             admin_user = User(username="admin", hashed_password=hashed_pwd, role=Role.ADMIN)
             session.add(admin_user)
             session.commit()
-            print("Default admin user created: admin / admin")
+            print("Default admin user created: admin / admin — CHANGE THIS PASSWORD IMMEDIATELY")
+        
+        # Clear any stuck task states from a previous crash
+        # If the server died mid-reinstall, VMs would be permanently frozen in the UI
+        stuck_vms = session.exec(select(VM).where(VM.task_state != None)).all()
+        if stuck_vms:
+            print(f"Clearing {len(stuck_vms)} stuck task(s) from previous session...")
+            for vm in stuck_vms:
+                vm.task_state = None
+                vm.task_message = "Interrupted — server restarted"
+                vm.task_progress = 0
+                session.add(vm)
+            session.commit()
+
+        # Clear any scheduled tasks stuck in RUNNING state from a previous crash
+        from app.models.scheduled_task import ScheduledTask, TaskStatus
+        stuck_tasks = session.exec(select(ScheduledTask).where(ScheduledTask.status == TaskStatus.RUNNING)).all()
+        if stuck_tasks:
+            print(f"Clearing {len(stuck_tasks)} stuck scheduled task(s) from previous session...")
+            for t in stuck_tasks:
+                t.status = TaskStatus.FAILED
+                t.result_message = "Interrupted — server restarted"
+                session.add(t)
+            session.commit()
     
-    # Start background task
+    # Start background tasks
     asyncio.create_task(check_expiring_vms())
+    asyncio.create_task(run_scheduler())
     
     yield
 
@@ -138,6 +165,7 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(vm.router)
 app.include_router(network.router)
+app.include_router(scheduled_tasks.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
